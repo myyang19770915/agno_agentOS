@@ -106,15 +106,18 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
             if (!groups[date]) {
                 groups[date] = [];
             }
-            groups[date].push(session);
+            groups[date].push({
+                ...session,
+                _sortTimestamp: timestamp // 添加用於排序的時間戳
+            });
         });
 
         // 按時間排序每個群組內的 sessions（最新在前）
         Object.keys(groups).forEach(date => {
             groups[date].sort((a, b) => {
-                const timeA = a.updated_at || a.created_at || 0;
-                const timeB = b.updated_at || b.created_at || 0;
-                return timeB - timeA;
+                const timeA = a._sortTimestamp || parseTimestamp(a.updated_at || a.created_at);
+                const timeB = b._sortTimestamp || parseTimestamp(b.updated_at || b.created_at);
+                return timeB - timeA; // 降序：最新在最上面
             });
         });
 

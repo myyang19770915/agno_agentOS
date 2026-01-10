@@ -150,3 +150,12 @@
 .image-link:hover {
   color: #00d9ff;
 }
+
+/* Images Section - 獨立區域避免閃爍 */
+.images-section {
+  margin-top: 1rem;
+}
+
+.images-section .generated-image-container {
+  margin: 0.5rem 0;
+}
