@@ -22,17 +22,21 @@ from agno.db.sqlite import SqliteDb
 from agno.tools.tavily import TavilyTools
 from agno.tools import tool
 from agno.team import Team
+from dotenv import load_dotenv
 import os
 import logging
+
+# 載入環境變數
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ===== Model Configuration =====
 model = LiteLLMOpenAI(
-    id="deepseek-chat",  # LiteLLM 中配置的 model 名稱
-    api_key="sk-1234",
-    base_url="http://localhost:4001/v1",
+    id=os.getenv("MODEL_ID", "deepseek-chat"),
+    api_key=os.getenv("LITELLM_API_KEY"),
+    base_url=os.getenv("LITELLM_BASE_URL", "http://localhost:4001/v1"),
 )
 
 # ===== Database for Session Memory =====
@@ -43,7 +47,7 @@ if not os.path.exists(storage_dir):
 db = SqliteDb(db_file=f"{storage_dir}/agent.db")
 
 # ===== Research Agent (本地) =====
-tavily_tools = TavilyTools(api_key="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")
+tavily_tools = TavilyTools(api_key=os.getenv("TAVILY_API_KEY"))
 
 research_agent = Agent(
     id="research-agent",
@@ -66,7 +70,7 @@ research_agent = Agent(
 
 # ===== RemoteAgent 連接遠端 Image Agent (port 9999) =====
 remote_image_agent = RemoteAgent(
-    base_url="http://localhost:9999",
+    base_url=os.getenv("IMAGE_AGENT_URL", "http://localhost:9999"),
     agent_id="image-generator",
 )
 

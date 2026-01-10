@@ -4,15 +4,19 @@ from agno.db.sqlite import SqliteDb
 from agno.tools.tavily import TavilyTools
 from agno.tools import tool
 from agno.team import Team
+from dotenv import load_dotenv
 import os
 import httpx
 import json
 
+# 載入環境變數
+load_dotenv()
+
 # 使用 LiteLLM Proxy
 model = LiteLLMOpenAI(
-    id="deepseek-chat",  # LiteLLM 中配置的 model 名稱
-    api_key="sk-1234",
-    base_url="http://localhost:4001/v1",
+    id=os.getenv("MODEL_ID", "deepseek-chat"),
+    api_key=os.getenv("LITELLM_API_KEY"),
+    base_url=os.getenv("LITELLM_BASE_URL", "http://localhost:4001/v1"),
 )
 
 # 資料庫用於 Session 記憶
@@ -23,8 +27,7 @@ if not os.path.exists(storage_dir):
 db = SqliteDb(db_file=f"{storage_dir}/agent.db")
 
 # Tavily Search Tools
-# 使用者提供的 API Key
-tavily_tools = TavilyTools(api_key="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")
+tavily_tools = TavilyTools(api_key=os.getenv("TAVILY_API_KEY"))
 
 # 主要研究 Agent
 research_agent = Agent(
@@ -47,7 +50,7 @@ research_agent = Agent(
 )
 
 # ===== Image Generation Tool (透過 A2A 呼叫遠端服務) =====
-IMAGE_AGENT_URL = "http://localhost:9999"
+IMAGE_AGENT_URL = os.getenv("IMAGE_AGENT_URL", "http://localhost:9999")
 
 @tool(name="generate_image")
 async def call_image_agent(prompt: str) -> str:

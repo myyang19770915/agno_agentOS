@@ -9,19 +9,23 @@ from agno.agent import Agent
 from agno.models.litellm import LiteLLMOpenAI
 from agno.os import AgentOS
 from agno.tools import tool
+from dotenv import load_dotenv
 import os
 import logging
 
 from image import generate_image
 
+# 載入環境變數
+load_dotenv()
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 使用 LiteLLM Proxy (與主服務相同的設定)
+# 使用 LiteLLM Proxy (從環境變數載入)
 model = LiteLLMOpenAI(
-    id="deepseek-chat",
-    api_key="sk-1234",
-    base_url="http://localhost:4001/v1",
+    id=os.getenv("MODEL_ID", "deepseek-chat"),
+    api_key=os.getenv("LITELLM_API_KEY"),
+    base_url=os.getenv("LITELLM_BASE_URL", "http://localhost:4001/v1"),
 )
 
 # 圖片輸出目錄

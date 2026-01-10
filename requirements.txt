@@ -1,9 +1,11 @@
 agno
+httpx
+tavily-python
+python-dotenv
 uvicorn
 duckduckgo-search
 fastapi
 openai
 sqlalchemy
 ddgs
-a2a-sdk
 
