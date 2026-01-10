@@ -1,0 +1,202 @@
+﻿.tool-status {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 0.5rem 0;
+}
+
+.tool-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  color: #a78bfa;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 8px;
+  transition: background 0.2s ease;
+}
+
+.tool-status-header:hover {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tool-icon {
+  font-size: 1rem;
+}
+
+.task-count {
+  font-size: 0.75rem;
+  color: #888;
+  font-weight: normal;
+}
+
+.collapse-icon {
+  font-size: 0.75rem;
+  transition: transform 0.3s ease;
+}
+
+.collapse-icon.collapsed {
+  transform: rotate(-90deg);
+}
+
+/* Agent 分組 */
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.agent-group {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  padding: 0.75rem;
+  border-left: 3px solid #666;
+}
+
+.agent-group.running {
+  border-left-color: #ffc107;
+  animation: agentPulse 2s infinite;
+}
+
+.agent-group.completed {
+  border-left-color: #00ff88;
+}
+
+.agent-group.error {
+  border-left-color: #ff4757;
+}
+
+@keyframes agentPulse {
+
+  0%,
+  100% {
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  50% {
+    background: rgba(255, 193, 7, 0.1);
+  }
+}
+
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.agent-icon {
+  font-size: 1.25rem;
+}
+
+.agent-name {
+  font-weight: 600;
+  color: #00d9ff;
+  font-size: 0.85rem;
+  flex: 1;
+}
+
+.agent-task-count {
+  font-size: 0.7rem;
+  color: #888;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* 工具列表 */
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-left: 1.5rem;
+}
+
+.tool-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  transition: all 0.3s ease;
+  border-left: 2px solid transparent;
+}
+
+.tool-item.running {
+  animation: toolPulse 1.5s infinite;
+  border-left-color: #ffc107;
+}
+
+.tool-item.completed {
+  border-left-color: #00ff88;
+}
+
+.tool-item.error {
+  border-left-color: #ff4757;
+}
+
+@keyframes toolPulse {
+
+  0%,
+  100% {
+    background: rgba(0, 0, 0, 0.15);
+  }
+
+  50% {
+    background: rgba(255, 193, 7, 0.1);
+  }
+}
+
+.status-icon {
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.tool-item.running .status-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tool-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  overflow: hidden;
+  flex: 1;
+}
+
+.tool-name {
+  font-weight: 600;
+  color: #fff;
+  font-size: 0.8rem;
+}
+
+.tool-args {
+  font-size: 0.7rem;
+  color: #666;
+  font-family: 'Fira Code', monospace;
+  word-break: break-all;
+  line-height: 1.3;
+}

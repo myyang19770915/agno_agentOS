@@ -1,0 +1,9 @@
+agno
+uvicorn
+duckduckgo-search
+fastapi
+openai
+sqlalchemy
+ddgs
+a2a-sdk
+
