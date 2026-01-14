@@ -121,28 +121,57 @@ function extractImagesFromContent(content) {
     return '';
   });
 
-  // 簡單的 Markdown 轉換
+  // 完整的 Markdown 轉換
   const textHtml = html
-    // 程式碼區塊
-    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    // 程式碼區塊 (先處理，避免被其他規則影響)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
     // 行內程式碼
     .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // 標題 (從 h4 到 h1，避免衝突)
+    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // 水平線
+    .replace(/^---$/gm, '<hr>')
+    .replace(/^\*\*\*$/gm, '<hr>')
     // 粗體
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     // 斜體
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    // 一般連結（非圖片）
+    // 無序列表項目 - 移除可能的前導數字（如 "- 23. 內容" → 只保留 "內容"）
+    .replace(/^- (?:\d+[\.\)]\s*)?(.+)$/gm, '<li class="ul-item">$1</li>')
+    // 有序列表項目（純數字開頭，非 bullet point）
+    .replace(/^(\d+)[\.\)] (.+)$/gm, '<li class="ol-item" value="$1">$2</li>')
+    // 一般 Markdown 連結（非圖片）
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
       // 如果是圖片連結，不處理（已經處理過）
       if (/\.(png|jpg|jpeg|webp|gif)$/i.test(url)) {
         return '';
       }
-      return `<a href="${url}" target="_blank" rel="noopener">${text}</a>`;
+      return `<a href="${url}" target="_blank" rel="noopener" class="md-link">${text}</a>`;
     })
-    // 換行
+    // 自動偵測並連結純 URL (http/https)
+    .replace(/(?<!["\'>])https?:\/\/[^\s<>\[\]"']+/g, (url) => {
+      // 移除結尾的標點符號
+      const cleanUrl = url.replace(/[.,;:!?)]+$/, '');
+      const trailing = url.slice(cleanUrl.length);
+      return `<a href="${cleanUrl}" target="_blank" rel="noopener" class="auto-link">${cleanUrl}</a>${trailing}`;
+    })
+    // 換行處理
     .replace(/\n/g, '<br>')
+    // 將連續的列表項目包裝成列表
+    .replace(/(<li class="ul-item">.*?<\/li>)(<br>)?(?=<li class="ul-item">|<br><li class="ul-item">)/g, '$1')
+    .replace(/(<li class="ol-item">.*?<\/li>)(<br>)?(?=<li class="ol-item">|<br><li class="ol-item">)/g, '$1')
+    // 清理列表之間的多餘 <br>
+    .replace(/<\/li><br><li/g, '</li><li')
     // 清理多餘的空白行
-    .replace(/(<br>){3,}/g, '<br><br>');
+    .replace(/(<br>){3,}/g, '<br><br>')
+    // 清理標題後的 <br>
+    .replace(/(<\/h[1-4]>)<br>/g, '$1')
+    // 清理 <hr> 周圍的 <br>
+    .replace(/<br><hr>/g, '<hr>')
+    .replace(/<hr><br>/g, '<hr>');
 
   return { textHtml, imageHtml };
 }

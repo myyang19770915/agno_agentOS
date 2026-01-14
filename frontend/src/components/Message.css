@@ -96,14 +96,104 @@
 .message-text a {
   color: #00d9ff;
   text-decoration: none;
+  transition: all 0.2s ease;
 }
 
 .message-text a:hover {
   text-decoration: underline;
+  color: #4de8ff;
+}
+
+/* Markdown Links */
+.message-text .md-link {
+  color: #00d9ff;
+  font-weight: 500;
+}
+
+.message-text .auto-link {
+  color: #858eff;
+  word-break: break-all;
+}
+
+.message-text .auto-link:hover {
+  color: #a0a8ff;
 }
 
 .message-text strong {
   color: #fff;
+  font-weight: 600;
+}
+
+/* Markdown Headers */
+.message-text h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 1rem 0 0.5rem 0;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.message-text h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f0f0f0;
+  margin: 0.875rem 0 0.4rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.message-text h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0.75rem 0 0.3rem 0;
+}
+
+.message-text h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #d0d0d0;
+  margin: 0.5rem 0 0.25rem 0;
+}
+
+/* Markdown Lists */
+.message-text li {
+  margin: 0.25rem 0;
+  padding-left: 0.5rem;
+  position: relative;
+}
+
+.message-text li.ul-item {
+  list-style: none;
+}
+
+.message-text li.ul-item::before {
+  content: '•';
+  color: #00d9ff;
+  font-weight: bold;
+  position: absolute;
+  left: -0.75rem;
+}
+
+.message-text li.ol-item {
+  list-style: decimal;
+  margin-left: 1.5rem;
+  padding-left: 0;
+}
+
+.message-text li.ol-item::marker {
+  color: #00d9ff;
+  font-weight: 600;
+}
+
+/* Horizontal Rule */
+.message-text hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  margin: 1rem 0;
 }
 
 /* Generated Image Styles */

@@ -1,10 +1,26 @@
 # GitHub Issue: RemoteAgent cannot be used as Team member
 
+> [!TIP]
+> ## ✅ 已解決 - Resolved in agno 2.3.26
+> 
+> **更新日期**: 2026-01-14
+> 
+> 此問題已在 **agno 2.3.26** 版本中修復！現在可以正常使用 `RemoteAgent` 作為 `Team` 成員。
+> 
+> **驗證結果**: Creative Team 成功運行，RemoteAgent (image-generator) 可以與本地 Agent 協作。
+
+# https://github.com/agno-agi/agno/pull/5987/files#diff-12440e8eb86e8a5f2003778e2bbb3b709f5a74d2e5c5cfda7f24041974098c72
+
+
+---
+
 **Repository**: https://github.com/agno-agi/agno/issues/new
 
 **Title**: `[Bug] RemoteAgent cannot be used as Team member - missing attributes`
 
 **Labels**: `bug`
+
+**Status**: ~~Open~~ → **Closed (Fixed in v2.3.26)**
 
 ---
 
@@ -14,7 +30,7 @@ When using `RemoteAgent` as a member of a `Team`, the team execution fails with 
 
 ## Environment
 
-- **Agno Version**: 2.3.24
+- **Agno Version**: ~~2.3.24~~ → **2.3.26 (Fixed)**
 - **Python Version**: 3.11+
 - **OS**: Windows 11
 
