@@ -35,24 +35,29 @@ if not os.path.exists(OUTPUT_DIR):
 
 # Image generation tool
 @tool(name="generate_image_with_comfyui")
-async def generate_image_tool(image_prompt: str) -> str:
+async def generate_image_tool(
+    image_prompt: str,
+    width: int = 1024,
+    height: int = 1024
+) -> str:
     """
-    Generate an image using ComfyUI based on the provided prompt.
+    使用 ComfyUI 根據提示詞生成圖片。
     
     Args:
-        image_prompt: A detailed description of the image to generate.
-                     This should be a clear, descriptive prompt suitable for image generation.
+        image_prompt: 詳細的圖片描述提示詞，應清晰描述想要生成的圖片內容。
+        width: 圖片寬度，範圍 512-2048，預設 1024。建議使用 1024 以獲得最佳效果。
+        height: 圖片高度，範圍 512-2048，預設 1024。建議使用 1024 以獲得最佳效果。
     
     Returns:
-        The file path of the generated image, or an error message if generation failed.
+        生成圖片的檔案路徑，若失敗則返回錯誤訊息。
     """
-    logger.info(f"Generating image with prompt: {image_prompt[:50]}...")
+    logger.info(f"Generating image with prompt: {image_prompt[:50]}... Size: {width}x{height}")
     
     try:
-        result = await generate_image(image_prompt)
+        result = await generate_image(image_prompt, width=width, height=height)
         if result:
             logger.info(f"Image generated successfully: {result}")
-            return f"Image generated successfully. Path: {result}"
+            return f"Image generated successfully. Size: {width}x{height}. Path: {result}"
         else:
             return "Failed to generate image. Please try again with a different prompt."
     except Exception as e:
@@ -71,8 +76,19 @@ image_generator = Agent(
 ## Your Workflow:
 1. Analyze the user's request to understand what image they want
 2. Create an optimal prompt in ENGLISH for image generation
-3. Call the generate_image_with_comfyui tool with the prompt
-4. **IMPORTANT: You MUST include the exact image path in your response!**
+3. Determine the appropriate image size based on the content:
+   - Square images (1024x1024): General purpose, portraits, icons - BEST QUALITY
+   - Landscape (1280x720 or 1024x768): Scenery, banners, wallpapers
+   - Portrait (720x1280 or 768x1024): Mobile wallpapers, portraits, posters
+4. Call the generate_image_with_comfyui tool with the prompt AND size parameters
+5. **IMPORTANT: You MUST include the exact image path in your response!**
+
+## Image Size Guidelines:
+- Valid range: 512 to 2048 pixels for both width and height
+- **Optimal size: 1024x1024** - Provides the best quality output
+- For landscapes/banners: 1280x720 or 1024x768
+- For portraits/mobile: 720x1280 or 768x1024
+- Larger sizes (e.g., 2048x2048) require more processing time
 
 ## Prompt Guidelines:
 - Be specific and detailed about visual elements
@@ -81,13 +97,15 @@ image_generator = Agent(
 - Always use ENGLISH for the image prompt
 
 ## Example Prompt Transformations:
-- "台北夜景" → "Night cityscape of Taipei 101, neon lights reflecting on wet streets, cyberpunk atmosphere, ultra detailed, 8k"
-- "可愛的貓咪" → "Adorable fluffy cat sitting on a windowsill, soft natural lighting, bokeh background, warm colors"
+- "台北夜景" → "Night cityscape of Taipei 101, neon lights reflecting on wet streets, cyberpunk atmosphere, ultra detailed, 8k" (1280x720 for landscape)
+- "可愛的貓咪" → "Adorable fluffy cat sitting on a windowsill, soft natural lighting, bokeh background, warm colors" (1024x1024 for portrait)
+- "手機桌布" → Use 720x1280 for mobile wallpaper format
 
 ## CRITICAL OUTPUT FORMAT:
 After generating the image, your response MUST include this exact format:
 
 "Image generated successfully! 
+Size: [width]x[height]
 Path: outputs/images/[filename].png"
 
 The path MUST be included so the frontend can display the image. Never omit the path!

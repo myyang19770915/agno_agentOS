@@ -12,9 +12,17 @@ import os
 
 # ... imports ...
 
-async def generate_image(prompt: str) -> str:
+async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> str:
     """
-    Triggers ComfyUI to generate an image and returns the filename/URL.
+    使用 ComfyUI 生成圖片並返回檔案名稱/URL。
+    
+    Args:
+        prompt: 圖片生成提示詞
+        width: 圖片寬度（建議範圍 512-2048，預設 1024）
+        height: 圖片高度（建議範圍 512-2048，預設 1024）
+    
+    Returns:
+        生成圖片的本地路徑，若失敗則返回 None
     """
     # Load the workflow template
     workflow_path = os.path.join(os.path.dirname(__file__), "workflow_imagez.json")
@@ -41,6 +49,18 @@ async def generate_image(prompt: str) -> str:
     if ksampler_node_id in workflow:
         seed = random.randint(1, 100000000000000)
         workflow[ksampler_node_id]["inputs"]["seed"] = seed
+    
+    # 設定圖片尺寸 (Node 41: EmptySD3LatentImage)
+    size_node_id = "41"
+    if size_node_id in workflow:
+        # 限制尺寸在合理範圍內 (512-2048)
+        width = max(512, min(2048, width))
+        height = max(512, min(2048, height))
+        workflow[size_node_id]["inputs"]["width"] = width
+        workflow[size_node_id]["inputs"]["height"] = height
+        logger.info(f"Image size set to {width}x{height}")
+    else:
+        logger.warning(f"Size node {size_node_id} not found in workflow, using default size")
     
     # Send to ComfyUI
     client_id = str(uuid.uuid4())

@@ -53,24 +53,31 @@ research_agent = Agent(
 IMAGE_AGENT_URL = os.getenv("IMAGE_AGENT_URL", "http://localhost:9999")
 
 @tool(name="generate_image")
-async def call_image_agent(prompt: str) -> str:
+async def call_image_agent(
+    prompt: str,
+    width: int = 1024,
+    height: int = 1024
+) -> str:
     """
-    Generate an image using the remote Image Generator Agent via A2A protocol.
+    使用 A2A 協定呼叫遠端 Image Generator Agent 生成圖片。
     
     Args:
-        prompt: A description of the image to generate. Be specific about style, colors, and composition.
+        prompt: 圖片描述，應具體說明風格、顏色和構圖。
+        width: 圖片寬度，範圍 512-2048，預設 1024。
+        height: 圖片高度，範圍 512-2048，預設 1024。
     
     Returns:
-        The path to the generated image, or an error message.
+        生成圖片的路徑，或錯誤訊息。
     """
     try:
         timeout = httpx.Timeout(120.0, connect=10.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            # 呼叫遠端 Agent 的 runs endpoint
+            # 呼叫遠端 Agent 的 runs endpoint，包含尺寸資訊
+            message = f"Please generate an image with size {width}x{height} using the following prompt: {prompt}"
             response = await client.post(
                 f"{IMAGE_AGENT_URL}/agents/image-generator/runs",
                 data={
-                    "message": f"Please generate an image with the following prompt: {prompt}",
+                    "message": message,
                     "stream": "False"
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"}
@@ -98,8 +105,16 @@ image_agent = Agent(
 ## Your Workflow:
 1. Analyze the user's request to understand what image they want
 2. Create an optimal prompt in ENGLISH for image generation
-3. Call the generate_image tool with the prompt
-4. **CRITICAL: You MUST include the image path from the tool response in your final answer!**
+3. Determine the appropriate image size:
+   - Square (1024x1024): General purpose, portraits - BEST QUALITY
+   - Landscape (1280x720): Scenery, banners
+   - Portrait (720x1280): Mobile wallpapers, posters
+4. Call the generate_image tool with the prompt AND size parameters
+5. **CRITICAL: You MUST include the image path from the tool response in your final answer!**
+
+## Image Size Guidelines:
+- Valid range: 512 to 2048 pixels
+- **Optimal: 1024x1024** for best quality
 
 ## Prompt Guidelines:
 - Be specific and detailed about visual elements
@@ -111,6 +126,7 @@ image_agent = Agent(
 After the image is generated, you MUST include the path in your response like this:
 
 "Image generated successfully!
+Size: [width]x[height]
 Path: outputs/images/[filename].png"
 
 The image path from the tool output MUST be included in your response. 

@@ -15,7 +15,7 @@ if not exist ".venv\Scripts\activate.bat" (
 )
 
 :: 啟動虛擬環境
-call .venv\Scripts\activate.bat
+.\.venv\Scripts\activate
 
 echo [1/3] 🎨 啟動 Image Agent (port 9999)...
 start "Image Agent" cmd /k "cd backend && python image_agent.py"

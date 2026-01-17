@@ -76,22 +76,29 @@ remote_image_agent = RemoteAgent(
 
 # ===== 創建包裝 Tool 來調用 RemoteAgent =====
 @tool(name="generate_image_via_remote")
-async def call_remote_image_agent(image_prompt: str) -> str:
+async def call_remote_image_agent(
+    image_prompt: str,
+    width: int = 1024,
+    height: int = 1024
+) -> str:
     """
-    Generate an image using the remote Image Generator Agent.
+    使用遠端 Image Generator Agent 生成圖片。
     
     Args:
-        image_prompt: A detailed description of the image to generate.
-                     Should be a clear, descriptive prompt in ENGLISH.
+        image_prompt: 詳細的圖片描述提示詞，應為清晰的英文描述。
+        width: 圖片寬度，範圍 512-2048，預設 1024。
+        height: 圖片高度，範圍 512-2048，預設 1024。
     
     Returns:
-        The response from the remote agent, including the image path.
+        遠端 Agent 的回應，包含圖片路徑。
     """
-    logger.info(f"🎨 Calling RemoteAgent with prompt: {image_prompt[:50]}...")
+    logger.info(f"🎨 Calling RemoteAgent with prompt: {image_prompt[:50]}... Size: {width}x{height}")
     
     try:
+        # 將尺寸資訊包含在訊息中
+        message = f"Please generate an image with size {width}x{height} using the following prompt: {image_prompt}"
         response = await remote_image_agent.arun(
-            image_prompt,
+            message,
             user_id="wrapper-agent",
         )
         logger.info(f"✅ RemoteAgent response received")
@@ -113,8 +120,16 @@ image_agent = Agent(
 ## Your Workflow:
 1. Analyze the user's request to understand what image they want
 2. Create an optimal prompt in ENGLISH for image generation
-3. Call the generate_image_via_remote tool with the prompt
-4. **IMPORTANT: You MUST include the exact image path in your response!**
+3. Determine the appropriate image size:
+   - Square (1024x1024): General purpose, portraits - BEST QUALITY
+   - Landscape (1280x720): Scenery, banners
+   - Portrait (720x1280): Mobile wallpapers, posters
+4. Call the generate_image_via_remote tool with the prompt AND size parameters
+5. **IMPORTANT: You MUST include the exact image path in your response!**
+
+## Image Size Guidelines:
+- Valid range: 512 to 2048 pixels
+- **Optimal: 1024x1024** for best quality
 
 ## Prompt Guidelines:
 - Be specific and detailed about visual elements
@@ -126,6 +141,7 @@ image_agent = Agent(
 After generating the image, your response MUST include this exact format:
 
 "Image generated successfully! 
+Size: [width]x[height]
 Path: outputs/images/[filename].png"
 
 The path MUST be included so the frontend can display the image. Never omit the path!
