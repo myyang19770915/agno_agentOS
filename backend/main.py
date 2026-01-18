@@ -25,7 +25,7 @@ import os
 
 # ----- 模式 3: Native RemoteAgent 模式 (推薦，需要 agno 2.3.26+) -----
 # 直接使用 RemoteAgent 作為 Team 成員，無需 Wrapper
-from agents_remote import research_agent, creative_team
+from agents_remote import research_agent, creative_team, image_agent
 
 
 # ============================================================================
@@ -42,7 +42,7 @@ if not os.path.exists(output_dir):
 agent_os = AgentOS(
     name="Creative Research AgentOS",
     description="Agent with session memory, web search, and image generation via RemoteAgent",
-    agents=[research_agent],
+    agents=[research_agent, image_agent],
     teams=[creative_team],
     a2a_interface=True,  # 啟用 A2A 協定
 )
@@ -67,6 +67,7 @@ if __name__ == "__main__":
     print()
     print("Available endpoints:")
     print("  - POST /agents/research-agent/runs  (Single Agent)")
+    print("  - POST /agents/image-agent/runs  (Single Agent)")
     print("  - POST /teams/creative-team/runs    (Team Mode)")
     print("  - GET  /images/{filename}           (Generated Images)")
     print()

@@ -1,5 +1,15 @@
-﻿const API_BASE = '/agents/research-agent/runs';
-const TEAM_API = '/teams/creative-team/runs';
+﻿const TEAM_API = '/teams/creative-team/runs';
+
+// 取得可用的 Agent 列表
+export async function getAgents() {
+  const response = await fetch('/agents');
+  if (!response.ok) {
+    throw new Error('Failed to fetch agents');
+  }
+  const data = await response.json();
+  // AgentOS 回傳格式: { value: [...], Count: n }
+  return data.value || data || [];
+}
 
 // 產生 UUID
 export function generateSessionId() {
@@ -68,8 +78,8 @@ async function* parseSSEStream(response) {
 }
 
 // 串流傳送訊息（單一 Agent）
-export async function* sendMessage(message, sessionId) {
-  const response = await fetch(API_BASE, {
+export async function* sendMessage(message, sessionId, agentId = 'research-agent') {
+  const response = await fetch(`/agents/${agentId}/runs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({

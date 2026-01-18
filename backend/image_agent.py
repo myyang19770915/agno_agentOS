@@ -14,6 +14,7 @@ import os
 import logging
 
 from image import generate_image
+from agno.db.sqlite import SqliteDb
 
 # 載入環境變數
 load_dotenv()
@@ -27,6 +28,13 @@ model = LiteLLMOpenAI(
     api_key=os.getenv("LITELLM_API_KEY"),
     base_url=os.getenv("LITELLM_BASE_URL", "http://localhost:4001/v1"),
 )
+
+# 資料庫用於 Session 記憶
+storage_dir = "tmp"
+if not os.path.exists(storage_dir):
+    os.makedirs(storage_dir)
+
+db = SqliteDb(db_file=f"{storage_dir}/agent.db")
 
 # 圖片輸出目錄
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "outputs", "images")
@@ -70,6 +78,11 @@ image_generator = Agent(
     id="image-generator",
     name="Image Generator",
     model=model,
+    db=db,
+    add_history_to_context=True,
+    num_history_runs=5,
+    add_datetime_to_context=True,
+    # enable_agentic_memory=True,  # 暫時禁用：DeepSeek 模型有時生成不合規 JSON
     tools=[generate_image_tool],
     instructions="""You are an AI image generation assistant powered by ComfyUI.
 

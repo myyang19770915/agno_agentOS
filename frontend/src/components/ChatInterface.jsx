@@ -1,5 +1,5 @@
 ﻿import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { sendMessage, sendTeamMessage, getSessionId, clearSession, generateSessionId } from '../services/api';
+import { sendMessage, sendTeamMessage, getSessionId, clearSession, generateSessionId, getAgents } from '../services/api';
 import Message from './Message';
 import ToolStatus from './ToolStatus';
 import './ChatInterface.css';
@@ -12,6 +12,8 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
   const [activeTools, setActiveTools] = useState([]);
   const [currentAgent, setCurrentAgent] = useState(null);
   const [isTeamMode, setIsTeamMode] = useState(false); // Team 模式切換
+  const [agents, setAgents] = useState([]);  // 可用 Agent 列表
+  const [selectedAgent, setSelectedAgent] = useState('');  // 選中的 Agent ID
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
@@ -46,6 +48,24 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
       onSessionChange(sessionId);
     }
   }, [sessionId, onSessionChange]);
+
+  // 初始化時載入可用 Agent 列表
+  useEffect(() => {
+    getAgents()
+      .then((list) => {
+        setAgents(list);
+        // 預設選第一個 Agent
+        if (list.length > 0 && !selectedAgent) {
+          setSelectedAgent(list[0].id);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load agents:', err);
+        // 回退到預設值
+        setAgents([{ id: 'research-agent', name: 'Research Agent' }]);
+        setSelectedAgent('research-agent');
+      });
+  }, []);
 
   // 暴露方法給父元件
   useImperativeHandle(ref, () => ({
@@ -131,7 +151,7 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
       // 根據模式選擇 API
       const messageStream = isTeamMode
         ? sendTeamMessage(userMessage, sessionId)
-        : sendMessage(userMessage, sessionId);
+        : sendMessage(userMessage, sessionId, selectedAgent);
 
       let isFirstEvent = true;
       for await (const event of messageStream) {
@@ -258,8 +278,22 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
   return (
     <div className="chat-interface">
       <header className="chat-header">
-        <h1>{isTeamMode ? '👥 Creative Team' : '🤖 Research Agent'}</h1>
+        <h1>{isTeamMode ? '👥 Creative Team' : `🤖 ${agents.find(a => a.id === selectedAgent)?.name || 'Agent'}`}</h1>
         <div className="header-controls">
+          {/* Agent 選擇器 - 僅在 Agent 模式下顯示 */}
+          {!isTeamMode && (
+            <select
+              className="agent-selector"
+              value={selectedAgent}
+              onChange={(e) => setSelectedAgent(e.target.value)}
+            >
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          )}
           {/* 模式切換開關 */}
           <div className="mode-toggle">
             <span className={!isTeamMode ? 'active' : ''}>Agent</span>

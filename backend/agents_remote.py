@@ -3,7 +3,9 @@ from agno.models.litellm import LiteLLMOpenAI
 from agno.db.sqlite import SqliteDb
 from agno.tools.tavily import TavilyTools
 from agno.team import Team
+from agno.skills import Skills, LocalSkills
 import os
+from pathlib import Path
 
 # 使用 LiteLLM Proxy
 model = LiteLLMOpenAI(
@@ -23,6 +25,11 @@ db = SqliteDb(db_file=f"{storage_dir}/agent.db")
 # 使用者提供的 API Key
 tavily_tools = TavilyTools(api_key="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")
 
+# ===== Skills 設定 =====
+# 從本地目錄載入 Skills
+skills_dir = Path(r"D:\agy\my_agent_app\.agent\skills")
+agent_skills = Skills(loaders=[LocalSkills(str(skills_dir))])
+
 # 主要研究 Agent
 research_agent = Agent(
     id="research-agent",
@@ -30,16 +37,18 @@ research_agent = Agent(
     model=model,
     db=db,
     tools=[tavily_tools],
-    instructions="""You are a helpful research assistant.
+    skills=agent_skills,  # 加入 Skills
+    instructions="""You are a helpful research assistant with access to specialized skills.
     1. Use Tavily search to find accurate and up-to-date information.
     2. Provide detailed answers based on the search results.
     3. Always cite your sources.
     4. Respond in the same language as the user's question.
+    5. You have access to various skills - use get_skill_instructions() to load skill details when needed.
     """,
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
-    enable_agentic_memory=True,
+    # enable_agentic_memory=True,  # 暫時禁用：DeepSeek 模型有時生成不合規 JSON
     markdown=True,
 )
 

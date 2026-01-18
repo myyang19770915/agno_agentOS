@@ -1,7 +1,8 @@
 ﻿.message {
   display: flex;
   gap: 1rem;
-  max-width: 85%;
+  /* [UI 設定] 訊息氣泡最大寬度 - 原本 85%，改為 95% */
+  max-width: 95%;
   animation: fadeIn 0.3s ease;
 }
 
@@ -67,8 +68,9 @@
 }
 
 .message-text {
-  font-size: 0.95rem;
-  line-height: 1.6;
+  /* [UI 設定] 訊息內文字體大小 - 原本 0.95rem，改為 1.1rem */
+  font-size: 1.3rem;
+  line-height: 1.7;
   word-wrap: break-word;
 }
 
@@ -125,8 +127,9 @@
 }
 
 /* Markdown Headers */
+/* [UI 設定] 標題字體大小 */
 .message-text h1 {
-  font-size: 1.5rem;
+  font-size: 1.6rem;
   font-weight: 700;
   color: #fff;
   margin: 1rem 0 0.5rem 0;
@@ -135,7 +138,8 @@
 }
 
 .message-text h2 {
-  font-size: 1.25rem;
+  /* [UI 設定] H2 字體大小 */
+  font-size: 1.35rem;
   font-weight: 600;
   color: #f0f0f0;
   margin: 0.875rem 0 0.4rem 0;
@@ -145,7 +149,8 @@
 }
 
 .message-text h3 {
-  font-size: 1.1rem;
+  /* [UI 設定] H3 字體大小 */
+  font-size: 1.2rem;
   font-weight: 600;
   color: #e0e0e0;
   margin: 0.75rem 0 0.3rem 0;
