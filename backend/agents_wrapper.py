@@ -18,7 +18,7 @@ Agents Wrapper Module - 使用 RemoteAgent Wrapper 模式
 
 from agno.agent import Agent, RemoteAgent
 from agno.models.litellm import LiteLLMOpenAI
-from agno.db.sqlite import SqliteDb
+from agno.db.postgres import PostgresDb
 from agno.tools.tavily import TavilyTools
 from agno.tools import tool
 from agno.team import Team
@@ -39,12 +39,14 @@ model = LiteLLMOpenAI(
     base_url=os.getenv("LITELLM_BASE_URL", "http://localhost:4001/v1"),
 )
 
-# ===== Database for Session Memory =====
-storage_dir = "tmp"
-if not os.path.exists(storage_dir):
-    os.makedirs(storage_dir)
+# ===== Database for Session Memory (PostgreSQL) =====
+db_url = "postgresql://webui:webui@postgresql.database.svc.cluster.local:5432/meeting_records"
 
-db = SqliteDb(db_file=f"{storage_dir}/agent.db")
+db = PostgresDb(
+    session_table="agent_sessions260223",
+    db_schema="ai",
+    db_url=db_url,
+)
 
 # ===== Research Agent (本地) =====
 tavily_tools = TavilyTools(api_key=os.getenv("TAVILY_API_KEY"))
@@ -55,6 +57,7 @@ research_agent = Agent(
     model=model,
     db=db,
     tools=[tavily_tools],
+    tool_call_limit=5,    # 限制最夹5次工具呼叫，避免循環搜尋
     instructions="""You are a helpful research assistant.
     1. Use Tavily search to find accurate and up-to-date information.
     2. Provide detailed answers based on the search results.
@@ -159,6 +162,7 @@ creative_team = Team(
     model=model,
     db=db,
     members=[research_agent, image_agent],  # ✅ 使用 wrapper
+    tool_call_limit=10,   # 整個 Team 最多10次工具呼叫
     instructions="""You are a creative research team with two specialized members:
 
 1. **Research Agent**: Expert at web searching and gathering information using Tavily

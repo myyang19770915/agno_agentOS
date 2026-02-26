@@ -156,6 +156,25 @@
   text-overflow: ellipsis;
 }
 
+/* session-meta: 時間 + session_id 小字 */
+.session-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.session-time-inline {
+  font-size: 0.7rem;
+  color: #888;
+}
+
+.session-id-text {
+  font-size: 0.65rem;
+  color: #555;
+  font-family: monospace;
+}
+
 .session-time {
   font-size: 0.7rem;
   color: #555;

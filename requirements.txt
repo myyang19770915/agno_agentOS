@@ -1,4 +1,4 @@
-agno
+agno[postgres]
 httpx
 tavily-python
 python-dotenv
@@ -8,4 +8,9 @@ fastapi
 openai
 sqlalchemy
 ddgs
-
+plotly
+litellm
+a2a-sdk
+opentelemetry-api
+opentelemetry-sdk
+openinference-instrumentation-agno

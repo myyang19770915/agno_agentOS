@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo } from 'react';
 import './ToolStatus.css';
 
-function ToolStatus({ tools }) {
+function ToolStatus({ tools, onCancel }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   // 根據 agent 分組工具呼叫
@@ -71,8 +71,15 @@ function ToolStatus({ tools }) {
           <span>Agent 任務指派</span>
           <span className="task-count">({completedTools}/{totalTools})</span>
         </span>
-        <span className={`collapse-icon ${isCollapsed ? 'collapsed' : ''}`}>
-          ▼
+        <span className="header-right" onClick={e => e.stopPropagation()}>
+          {onCancel && (
+            <button className="cancel-btn" onClick={onCancel} title="中止請求">
+              ⏹ 取消
+            </button>
+          )}
+          <span className={`collapse-icon ${isCollapsed ? 'collapsed' : ''}`}>
+            ▼
+          </span>
         </span>
       </div>
 

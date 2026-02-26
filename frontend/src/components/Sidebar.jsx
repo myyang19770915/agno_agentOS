@@ -2,22 +2,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { getSessions, getSessionRuns, deleteSession } from '../services/api';
 import './Sidebar.css';
 
-function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigger }) {
+function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigger, isTeamMode }) {
     const [sessions, setSessions] = useState([]);
     const [groupedSessions, setGroupedSessions] = useState({});
     const [expandedDates, setExpandedDates] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // 載入 sessions
+    // 根據 isTeamMode 載入對應類型的 sessions
     const loadSessions = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
-            const data = await getSessions();
+            const type = isTeamMode ? 'team' : 'agent';
+            const sessionList = await getSessions(type);
 
-            // data 可能是 { data: [...] }, { sessions: [...] } 或直接是陣列
-            const sessionList = data.data || data.sessions || (Array.isArray(data) ? data : []);
             setSessions(sessionList);
 
             // 按日期分組
@@ -38,7 +37,7 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [isTeamMode]);
 
     useEffect(() => {
         loadSessions();
@@ -47,7 +46,6 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
     // 當 currentSessionId 變化時重新載入（新對話可能產生）
     useEffect(() => {
         if (currentSessionId) {
-            // 延遲一下確保後端已儲存
             const timer = setTimeout(loadSessions, 1000);
             return () => clearTimeout(timer);
         }
@@ -124,14 +122,16 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
         return groups;
     }
 
-    // 取得 session 預覽文字
+    // 取得 session 摘要文字（10-20 字）
     function getSessionPreview(session) {
-        // 嘗試從 session 資料中取得預覽
-        if (session.name) return session.name;
-        if (session.title) return session.title;
-
-        // 使用 session_id 的前幾個字元
-        return `對話 ${session.session_id?.slice(0, 8) || 'Unknown'}...`;
+        // 優先使用 session_name（API 回傳的第一筆訊息）
+        const raw = session.session_name || session.name || session.title || '';
+        if (raw) {
+            // 取前 20 字做摘要
+            return raw.length > 20 ? raw.slice(0, 20) + '…' : raw;
+        }
+        // 回退：使用 session_id 前 8 字
+        return `對話 ${session.session_id?.slice(0, 8) || 'Unknown'}`;
     }
 
     // 切換日期群組展開/收合
@@ -146,7 +146,8 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
     const handleSelectSession = async (session) => {
         if (onSelectSession) {
             try {
-                const runs = await getSessionRuns(session.session_id);
+                const type = isTeamMode ? 'team' : 'agent';
+                const runs = await getSessionRuns(session.session_id, type);
                 onSelectSession(session.session_id, runs);
             } catch (err) {
                 console.error('Failed to load session runs:', err);
@@ -160,7 +161,8 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
         if (!confirm('確定要刪除這個對話嗎？')) return;
 
         try {
-            await deleteSession(sessionId);
+            const type = isTeamMode ? 'team' : 'agent';
+            await deleteSession(sessionId, type);
             await loadSessions();
         } catch (err) {
             console.error('Failed to delete session:', err);
@@ -180,7 +182,7 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
     return (
         <div className="sidebar">
             <div className="sidebar-header">
-                <h2>📚 對話紀錄</h2>
+                <h2>{isTeamMode ? '👥 Team 紀錄' : '🤖 Agent 紀錄'}</h2>
                 <button className="new-chat-btn" onClick={onNewSession}>
                     ✨ 新對話
                 </button>
@@ -198,7 +200,7 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
                     </div>
                 ) : sortedDates.length === 0 ? (
                     <div className="no-sessions">
-                        <p>📭 尚無對話紀錄</p>
+                        <p>📭 尚無{isTeamMode ? ' Team ' : ' Agent '}對話紀錄</p>
                         <p className="hint">開始一個新對話吧！</p>
                     </div>
                 ) : (
@@ -224,18 +226,20 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
                                         className={`session-item ${session.session_id === currentSessionId ? 'active' : ''}`}
                                         onClick={() => handleSelectSession(session)}
                                     >
-                                        <span className="session-icon">💬</span>
+                                        <span className="session-icon">{isTeamMode ? '👥' : '💬'}</span>
                                         <div className="session-info">
                                             <div className="session-title">
                                                 {getSessionPreview(session)}
                                             </div>
-                                            <div className="session-preview">
-                                                {session.session_id?.slice(0, 16)}...
+                                            <div className="session-meta">
+                                                <span className="session-time-inline">
+                                                    {formatTime(parseTimestamp(session.updated_at || session.created_at))}
+                                                </span>
+                                                <span className="session-id-text">
+                                                    {session.session_id?.slice(0, 8)}
+                                                </span>
                                             </div>
                                         </div>
-                                        <span className="session-time">
-                                            {formatTime(parseTimestamp(session.updated_at || session.created_at))}
-                                        </span>
                                         <button
                                             className="delete-btn"
                                             onClick={(e) => handleDeleteSession(e, session.session_id)}

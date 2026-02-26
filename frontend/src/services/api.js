@@ -1,8 +1,10 @@
-﻿const TEAM_API = '/teams/creative-team/runs';
+﻿import { API_BASE } from '../config';
+
+const TEAM_API = `${API_BASE}/teams/creative-team/runs`;
 
 // 取得可用的 Agent 列表
 export async function getAgents() {
-  const response = await fetch('/agents');
+  const response = await fetch(`${API_BASE}/agents`);
   if (!response.ok) {
     throw new Error('Failed to fetch agents');
   }
@@ -37,49 +39,63 @@ export function clearSession() {
 }
 
 // SSE 串流解析共用函數
-async function* parseSSEStream(response) {
+async function* parseSSEStream(response, signal) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let currentEvent = null;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  // 若 AbortSignal 觸發，立即關閉 reader
+  if (signal) {
+    signal.addEventListener('abort', () => {
+      reader.cancel();
+    }, { once: true });
+  }
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+  try {
+    while (true) {
+      // 若已中止，直接結束
+      if (signal?.aborted) break;
 
-    for (const line of lines) {
-      const trimmedLine = line.trim();
+      const { done, value } = await reader.read();
+      if (done) break;
 
-      if (line.startsWith('event: ')) {
-        currentEvent = line.slice(7).trim();
-      } else if (line.startsWith('data: ')) {
-        try {
-          const dataStr = line.slice(6);
-          if (dataStr === '[DONE]') continue;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-          const data = JSON.parse(dataStr);
-          if (currentEvent) {
-            data.event = currentEvent;
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim();
+        } else if (line.startsWith('data: ')) {
+          try {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') continue;
+
+            const data = JSON.parse(dataStr);
+            if (currentEvent) {
+              data.event = currentEvent;
+            }
+            yield data;
+            currentEvent = null;
+          } catch (e) {
+            console.error('Error parsing SSE data:', e);
           }
-          yield data;
+        } else if (trimmedLine === '') {
           currentEvent = null;
-        } catch (e) {
-          console.error('Error parsing SSE data:', e);
         }
-      } else if (trimmedLine === '') {
-        currentEvent = null;
       }
     }
+  } finally {
+    reader.cancel().catch(() => {});
   }
 }
 
 // 串流傳送訊息（單一 Agent）
-export async function* sendMessage(message, sessionId, agentId = 'research-agent') {
-  const response = await fetch(`/agents/${agentId}/runs`, {
+export async function* sendMessage(message, sessionId, agentId = 'research-agent', signal) {
+  const response = await fetch(`${API_BASE}/agents/${agentId}/runs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -87,18 +103,19 @@ export async function* sendMessage(message, sessionId, agentId = 'research-agent
       session_id: sessionId,
       stream: 'True',
       monitor: 'True'
-    })
+    }),
+    signal,
   });
 
   if (!response.ok) {
     throw new Error('HTTP error! status: ' + response.status);
   }
 
-  yield* parseSSEStream(response);
+  yield* parseSSEStream(response, signal);
 }
 
 // 串流傳送訊息（Team 模式）
-export async function* sendTeamMessage(message, sessionId) {
+export async function* sendTeamMessage(message, sessionId, signal) {
   const response = await fetch(TEAM_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -107,41 +124,32 @@ export async function* sendTeamMessage(message, sessionId) {
       session_id: sessionId,
       stream: 'True',
       monitor: 'True'
-    })
+    }),
+    signal,
   });
 
   if (!response.ok) {
     throw new Error('HTTP error! status: ' + response.status);
   }
 
-  yield* parseSSEStream(response);
+  yield* parseSSEStream(response, signal);
 }
 
-// 取得所有 Sessions
-// 取得所有 Sessions (合併 Agent 和 Team)
-// 取得所有 Sessions (合併 Agent 和 Team)
-export async function getSessions() {
-  const [agentSessions, teamSessions] = await Promise.all([
-    fetch('/sessions?type=agent&limit=100').then(res => res.json()).catch(() => ({ data: [] })),
-    fetch('/sessions?type=team&limit=100').then(res => res.json()).catch(() => ({ data: [] }))
-  ]);
-
-  // 處理 API 回傳結構 { data: [...] }
-  const agentList = agentSessions.data || [];
-  const teamList = teamSessions.data || [];
-
-  // 合併並去重
-  const allSessions = [...agentList, ...teamList];
-
-  // 透過 Map 去重 (以 session_id 為鍵)
-  const uniqueSessions = Array.from(new Map(allSessions.map(s => [s.session_id, s])).values());
-
-  return uniqueSessions;
+// 取得 Sessions（依類型: 'agent' 或 'team'）
+export async function getSessions(type = 'agent') {
+  const response = await fetch(`${API_BASE}/sessions?type=${type}&limit=100`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${type} sessions`);
+  }
+  const result = await response.json();
+  const list = result.data || [];
+  // 為每筆 session 標記類型，方便前端判斷
+  return list.map(s => ({ ...s, _type: type }));
 }
 
 // 取得特定 Session 的 Runs（對話歷史）
-export async function getSessionRuns(sessionId) {
-  const response = await fetch(`/sessions/${sessionId}/runs`, {
+export async function getSessionRuns(sessionId, type = 'agent') {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/runs?type=${type}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' }
   });
@@ -154,8 +162,8 @@ export async function getSessionRuns(sessionId) {
 }
 
 // 刪除 Session
-export async function deleteSession(sessionId) {
-  const response = await fetch(`/sessions/${sessionId}`, {
+export async function deleteSession(sessionId, type = 'agent') {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}?type=${type}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' }
   });
@@ -170,8 +178,8 @@ export async function deleteSession(sessionId) {
 }
 
 // 重命名 Session
-export async function renameSession(sessionId, newName) {
-  const response = await fetch(`/sessions/${sessionId}/rename`, {
+export async function renameSession(sessionId, newName, type = 'agent') {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/rename?type=${type}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: newName })

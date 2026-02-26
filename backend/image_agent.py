@@ -5,6 +5,11 @@ This agent generates images using ComfyUI based on user prompts.
 It runs as a separate A2A-enabled service on port 9999.
 """
 
+# 解決 disk IO error 
+import os
+os.environ['XDG_CACHE_HOME'] = '/tmp/my_app_cache'
+######################################################
+
 from agno.agent import Agent
 from agno.models.litellm import LiteLLMOpenAI
 from agno.os import AgentOS
@@ -14,7 +19,9 @@ import os
 import logging
 
 from image import generate_image
-from agno.db.sqlite import SqliteDb
+from agno.db.postgres import PostgresDb
+import asyncio
+import concurrent.futures
 
 # 載入環境變數
 load_dotenv()
@@ -29,12 +36,17 @@ model = LiteLLMOpenAI(
     base_url=os.getenv("LITELLM_BASE_URL", "http://localhost:4001/v1"),
 )
 
-# 資料庫用於 Session 記憶
-storage_dir = "tmp"
-if not os.path.exists(storage_dir):
-    os.makedirs(storage_dir)
+# 資料庫用於 Session 記憶 (PostgreSQL)
+# 使用獨立 session table，避免與主 AgentOS (port 7777) 的 team/agent sessions 衝突
+# 若共用 agent_sessions260223，team 委派到此 RemoteAgent 時，
+# 會用同一個 session_id 寫入 AgentSession(session_type='agent')，覆蓋掉 TeamSession 的 session_type
+db_url = "postgresql://webui:webui@postgresql.database.svc.cluster.local:5432/meeting_records"
 
-db = SqliteDb(db_file=f"{storage_dir}/agent.db")
+db = PostgresDb(
+    session_table="image_agent_sessions260223",
+    db_schema="ai",
+    db_url=db_url,
+)
 
 # 圖片輸出目錄
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "outputs", "images")
@@ -42,27 +54,38 @@ if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
 # Image generation tool
-@tool(name="generate_image_with_comfyui")
-async def generate_image_tool(
-    image_prompt: str,
+@tool
+def generate_image_with_comfyui(
+    image_prompt: str = "",
     width: int = 1024,
     height: int = 1024
 ) -> str:
     """
-    使用 ComfyUI 根據提示詞生成圖片。
-    
+    Generate an image using ComfyUI based on a text prompt.
+
     Args:
-        image_prompt: 詳細的圖片描述提示詞，應清晰描述想要生成的圖片內容。
-        width: 圖片寬度，範圍 512-2048，預設 1024。建議使用 1024 以獲得最佳效果。
-        height: 圖片高度，範圍 512-2048，預設 1024。建議使用 1024 以獲得最佳效果。
-    
+        image_prompt: Detailed English description of the image to generate. Required.
+        width: Image width in pixels (512-2048). Default 1024.
+        height: Image height in pixels (512-2048). Default 1024.
+
     Returns:
-        生成圖片的檔案路徑，若失敗則返回錯誤訊息。
+        File path of the generated image, or an error message.
     """
+    if not image_prompt or image_prompt.strip() == "":
+        return (
+            "Error: 'image_prompt' is required but was not provided. "
+            "Please call generate_image_with_comfyui again with a detailed "
+            "English description in the 'image_prompt' parameter."
+        )
+
     logger.info(f"Generating image with prompt: {image_prompt[:50]}... Size: {width}x{height}")
     
     try:
-        result = await generate_image(image_prompt, width=width, height=height)
+        # 在獨立執行緒中執行 async，避免與 uvicorn 事件循環衝突
+        # timeout=600：允許最多 10 張序列排隊（每張 ~30s × 最多 10 張 + 緩衝）
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, generate_image(image_prompt, width=width, height=height))
+            result = future.result(timeout=600)
         if result:
             logger.info(f"Image generated successfully: {result}")
             return f"Image generated successfully. Size: {width}x{height}. Path: {result}"
@@ -83,8 +106,18 @@ image_generator = Agent(
     num_history_runs=5,
     add_datetime_to_context=True,
     # enable_agentic_memory=True,  # 暫時禁用：DeepSeek 模型有時生成不合規 JSON
-    tools=[generate_image_tool],
+    tools=[generate_image_with_comfyui],
+    tool_call_limit=1,  # 每次請求只生成一張圖，防止 LLM 自行產生多張變體
     instructions="""You are an AI image generation assistant powered by ComfyUI.
+
+## CRITICAL RULES:
+1. Generate EXACTLY ONE image per request. Never call generate_image_with_comfyui more than once.
+   - "三分法" / "rule of thirds" is a COMPOSITION GUIDELINE for the single image — NOT a request for 3 images.
+   - "變體" or "variant" in the prompt should be described within ONE unified prompt — never split into multiple calls.
+   - Even if the user mentions multiple styles or layouts, merge them into ONE best prompt and generate ONE image.
+2. When calling generate_image_with_comfyui, you MUST ALWAYS include the image_prompt argument.
+   Example: generate_image_with_comfyui(image_prompt="a cute cat on a table, anime style", width=1024, height=1024)
+   NEVER call the function without the image_prompt argument.
 
 ## Your Workflow:
 1. Analyze the user's request to understand what image they want
@@ -93,7 +126,7 @@ image_generator = Agent(
    - Square images (1024x1024): General purpose, portraits, icons - BEST QUALITY
    - Landscape (1280x720 or 1024x768): Scenery, banners, wallpapers
    - Portrait (720x1280 or 768x1024): Mobile wallpapers, portraits, posters
-4. Call the generate_image_with_comfyui tool with the prompt AND size parameters
+4. Call generate_image_with_comfyui(image_prompt="<your English prompt>", width=<W>, height=<H>)
 5. **IMPORTANT: You MUST include the exact image path in your response!**
 
 ## Image Size Guidelines:

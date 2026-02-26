@@ -4,19 +4,21 @@ import Message from './Message';
 import ToolStatus from './ToolStatus';
 import './ChatInterface.css';
 
-const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMessageSent }, ref) {
+const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMessageSent, isTeamMode, onTeamModeChange }, ref) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState(getSessionId());
   const [activeTools, setActiveTools] = useState([]);
   const [currentAgent, setCurrentAgent] = useState(null);
-  const [isTeamMode, setIsTeamMode] = useState(false); // Team 模式切換
   const [agents, setAgents] = useState([]);  // 可用 Agent 列表
   const [selectedAgent, setSelectedAgent] = useState('');  // 選中的 Agent ID
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const inactivityTimerRef = useRef(null);
+  const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000; // 3 分鐘無事件則逾時
 
   // 檢查是否接近底部（用於決定是否自動滾動）
   const isNearBottom = () => {
@@ -48,6 +50,14 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
       onSessionChange(sessionId);
     }
   }, [sessionId, onSessionChange]);
+
+  // 元件卸載時中止任何進行中的請求
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      clearTimeout(inactivityTimerRef.current);
+    };
+  }, []);
 
   // 初始化時載入可用 Agent 列表
   useEffect(() => {
@@ -126,6 +136,9 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
   }
 
   const handleNewSession = () => {
+    // 中止任何進行中的請求
+    abortControllerRef.current?.abort();
+    clearTimeout(inactivityTimerRef.current);
     const newSessionId = clearSession();
     setSessionId(newSessionId);
     localStorage.setItem('sessionId', newSessionId);
@@ -145,16 +158,54 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
     setActiveTools([]);
     setCurrentAgent(null);
 
+    // 建立新的 AbortController，中止上一次未完成的請求
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    // 重置閒置計時器（每次收到事件就重置；逾時則中止）
+    const resetInactivityTimer = () => {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = setTimeout(() => {
+        if (!abortController.signal.aborted) {
+          console.warn('[Timeout] 超過', INACTIVITY_TIMEOUT_MS / 1000, '秒無回應，自動中止');
+          abortController.abort();
+          setIsLoading(false);
+          setActiveTools([]);
+          setCurrentAgent(null);
+          setMessages(prev => {
+            const last = prev[prev.length - 1];
+            const timeoutNote = '\n\n> ⚠️ **等待逾時：長時間未收到回應，請稍後再試或重新發送。**';
+            if (last?.role === 'assistant' && last.content) {
+              const updated = [...prev];
+              updated[updated.length - 1] = { ...last, content: last.content + timeoutNote };
+              return updated;
+            }
+            return [...prev, {
+              role: 'assistant',
+              content: '⚠️ **等待逾時：長時間未收到回應。**\n\n可能原因：\n- 圖片生成中（ComfyUI 排隊）\n- 後端服務負載過高\n- 網路連線問題\n\n請稍候查看對話框是否有結果，或重新發送訊息。'
+            }];
+          });
+        }
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    // 立即啟動計時器（防止請求一開始就沒有回應）
+    resetInactivityTimer();
+
     let assistantContent = '';
 
     try {
       // 根據模式選擇 API
       const messageStream = isTeamMode
-        ? sendTeamMessage(userMessage, sessionId)
-        : sendMessage(userMessage, sessionId, selectedAgent);
+        ? sendTeamMessage(userMessage, sessionId, abortController.signal)
+        : sendMessage(userMessage, sessionId, selectedAgent, abortController.signal);
 
       let isFirstEvent = true;
       for await (const event of messageStream) {
+        // 每收到一個事件，重置閒置計時器
+        resetInactivityTimer();
+
         // 收到第一個事件時，後端已建立紀錄，通知側欄更新
         if (isFirstEvent && onMessageSent) {
           onMessageSent(sessionId);
@@ -265,12 +316,16 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
         }
       }
     } catch (error) {
-      console.error('Error:', error);
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `Error: ${error.message}`
-      }]);
+      // AbortError 是我們主動觸發的（逾時 or 換題），不顯示錯誤
+      if (error.name !== 'AbortError') {
+        console.error('Error:', error);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `❌ 發生錯誤：${error.message}`
+        }]);
+      }
     } finally {
+      clearTimeout(inactivityTimerRef.current);
       setIsLoading(false);
     }
   };
@@ -301,7 +356,7 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
               <input
                 type="checkbox"
                 checked={isTeamMode}
-                onChange={(e) => setIsTeamMode(e.target.checked)}
+                onChange={(e) => onTeamModeChange(e.target.checked)}
               />
               <span className="slider"></span>
             </label>
@@ -341,7 +396,25 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
             <div key={idx} className="message-wrapper">
               {/* If it's the last assistant message, render tools ABOVE it */}
               {isLastAssistantMessage && activeTools.length > 0 && (
-                <ToolStatus tools={activeTools} />
+                <ToolStatus
+                  tools={activeTools}
+                  onCancel={() => {
+                    abortControllerRef.current?.abort();
+                    clearTimeout(inactivityTimerRef.current);
+                    setIsLoading(false);
+                    setActiveTools([]);
+                    setCurrentAgent(null);
+                    setMessages(prev => {
+                      const last = prev[prev.length - 1];
+                      if (last?.role === 'assistant' && last.content) {
+                        const updated = [...prev];
+                        updated[updated.length - 1] = { ...last, content: last.content + '\n\n> ⏹ 已手動取消' };
+                        return updated;
+                      }
+                      return [...prev, { role: 'assistant', content: '⏹ 已取消' }];
+                    });
+                  }}
+                />
               )}
               <Message role={msg.role} content={msg.content} />
             </div>
@@ -350,7 +423,16 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
 
         {/* Fallback: If tools are active but there is no assistant message yet (e.g. searching before speaking) */}
         {activeTools.length > 0 && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant') && (
-          <ToolStatus tools={activeTools} />
+          <ToolStatus
+            tools={activeTools}
+            onCancel={() => {
+              abortControllerRef.current?.abort();
+              clearTimeout(inactivityTimerRef.current);
+              setIsLoading(false);
+              setActiveTools([]);
+              setCurrentAgent(null);
+            }}
+          />
         )}
 
         {isLoading && activeTools.length === 0 && messages.length > 0 && messages[messages.length - 1].role !== 'assistant' && (

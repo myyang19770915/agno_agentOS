@@ -10,7 +10,7 @@ Team Test: 使用 RemoteAgent Wrapper 方案
 
 from agno.agent import Agent, RemoteAgent
 from agno.models.litellm import LiteLLMOpenAI
-from agno.db.sqlite import SqliteDb
+from agno.db.postgres import PostgresDb
 from agno.tools.tavily import TavilyTools
 from agno.tools import tool
 from agno.team import Team
@@ -28,12 +28,14 @@ model = LiteLLMOpenAI(
     base_url="http://localhost:4001/v1",
 )
 
-# ===== Database for Session Memory =====
-storage_dir = "tmp"
-if not os.path.exists(storage_dir):
-    os.makedirs(storage_dir)
+# ===== Database for Session Memory (PostgreSQL) =====
+db_url = "postgresql://webui:webui@postgresql.database.svc.cluster.local:5432/meeting_records"
 
-db = SqliteDb(db_file=f"{storage_dir}/team_remote_wrapper.db")
+db = PostgresDb(
+    session_table="agent_sessions260223",
+    db_schema="ai",
+    db_url=db_url,
+)
 
 # ===== Research Agent (本地) =====
 tavily_tools = TavilyTools(api_key="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")

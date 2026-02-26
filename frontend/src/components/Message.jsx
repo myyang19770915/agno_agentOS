@@ -1,22 +1,105 @@
-﻿import { useMemo, useRef } from 'react';
+﻿import { memo, useMemo, useRef, useEffect } from 'react';
+import { API_BASE, IMAGES_BASE, CHARTS_BASE, DOWNLOADS_BASE } from '../config';
 import './Message.css';
 
-function Message({ role, content, isStreaming }) {
-  const lastImageHtmlRef = useRef('');
+/**
+ * 獨立的圖表區塊元件 — 只有 chartHtml 變化時才重新渲染，
+ * 避免父元件（Message）重新渲染時 iframe 被瀏覽器 re-paint / 閃爍。
+ */
+const ChartSection = memo(function ChartSection({ html }) {
+  if (!html) return null;
+  return (
+    <div
+      className="charts-section"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+});
 
-  // 提取圖片 HTML，並在 streaming 時保持穩定
-  const { textHtml, imageHtml } = useMemo(() => {
+const Message = memo(function Message({ role, content, isStreaming }) {
+  const lastImageHtmlRef = useRef('');
+  const lastChartHtmlRef = useRef('');
+  const lastDownloadHtmlRef = useRef('');
+  const messageTextRef = useRef(null);
+
+  // 提取圖片/圖表/下載 HTML，並在 streaming 時保持穩定
+  const { textHtml, imageHtml, chartHtml, downloadHtml } = useMemo(() => {
     const result = extractImagesFromContent(content);
-    // 如果有新圖片，更新緩存
-    if (result.imageHtml) {
-      lastImageHtmlRef.current = result.imageHtml;
-    }
+    if (result.imageHtml) lastImageHtmlRef.current = result.imageHtml;
+    if (result.chartHtml) lastChartHtmlRef.current = result.chartHtml;
+    if (result.downloadHtml) lastDownloadHtmlRef.current = result.downloadHtml;
     return {
       textHtml: result.textHtml,
-      // 使用緩存的圖片 HTML，避免 streaming 時閃爍
-      imageHtml: lastImageHtmlRef.current
+      imageHtml: lastImageHtmlRef.current,
+      chartHtml: lastChartHtmlRef.current,
+      downloadHtml: lastDownloadHtmlRef.current,
     };
   }, [content]);
+
+  // 攔截下載按鈕與圖片錯誤，避免跳離對話頁面
+  useEffect(() => {
+    const container = messageTextRef.current;
+    if (!container) return;
+
+    // 下載按鈕：先 HEAD 確認檔案存在才下載，否則跳出警告
+    const handleDownloadClick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const link = e.currentTarget;
+      const url = link.href;
+      const filename = link.getAttribute('download') || url.split('/').pop();
+      try {
+        const res = await fetch(url, { method: 'HEAD' });
+        if (res.ok) {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } else {
+          alert(`⚠️ 檔案不存在或尚未生成\n\n${url}\n\n請確認 Agent 是否已完成檔案生成。`);
+        }
+      } catch {
+        alert(`⚠️ 無法連線到伺服器\n\n請確認後端服務 (port 8013) 是否正在運行。`);
+      }
+    };
+
+    // 圖片 404：替換為錯誤提示，不顯示破圖
+    const handleImageError = (e) => {
+      const img = e.currentTarget;
+      img.removeEventListener('error', handleImageError);
+      const wrapper = img.closest('.generated-image-container');
+      if (wrapper) {
+        const src = img.src;
+        wrapper.innerHTML = `<div class="image-error">⚠️ 圖片不存在或載入失敗<br/><small>${src}</small></div>`;
+      }
+    };
+
+    const downloadLinks = container.querySelectorAll('.download-btn');
+    downloadLinks.forEach(link => link.addEventListener('click', handleDownloadClick));
+
+    // 也攔截 auto-link 中殘留的 /download/ URL（兜底），避免跳轉到空白頁
+    const autoLinks = container.querySelectorAll('a.auto-link');
+    autoLinks.forEach(link => {
+      if (link.href && link.href.includes('/download/')) {
+        link.addEventListener('click', handleDownloadClick);
+      }
+    });
+
+    const images = container.querySelectorAll('.generated-image');
+    images.forEach(img => img.addEventListener('error', handleImageError));
+
+    return () => {
+      downloadLinks.forEach(link => link.removeEventListener('click', handleDownloadClick));
+      autoLinks.forEach(link => {
+        if (link.href && link.href.includes('/download/')) {
+          link.removeEventListener('click', handleDownloadClick);
+        }
+      });
+      images.forEach(img => img.removeEventListener('error', handleImageError));
+    };
+  }, [downloadHtml, imageHtml]);
 
   return (
     <div className={`message ${role}`}>
@@ -25,9 +108,18 @@ function Message({ role, content, isStreaming }) {
       </div>
       <div className="message-content">
         <div className="message-role">{role === 'user' ? 'You' : 'Assistant'}</div>
-        <div className="message-text">
+        <div className="message-text" ref={messageTextRef}>
           {/* 文字內容 - 可以隨 stream 更新 */}
           <div dangerouslySetInnerHTML={{ __html: textHtml }} />
+          {/* Plotly 圖表 iframe 區域 — 獨立 memo 化元件，防止打字時閃爍 */}
+          <ChartSection html={chartHtml} />
+          {/* 下載檔案區域 */}
+          {downloadHtml && (
+            <div
+              className="downloads-section"
+              dangerouslySetInnerHTML={{ __html: downloadHtml }}
+            />
+          )}
           {/* 圖片區域 - 獨立渲染，避免閃爍 */}
           {imageHtml && (
             <div
@@ -39,28 +131,141 @@ function Message({ role, content, isStreaming }) {
       </div>
     </div>
   );
-}
+});
 
 function extractImagesFromContent(content) {
-  if (!content) return { textHtml: '', imageHtml: '' };
+  if (!content) return { textHtml: '', imageHtml: '', chartHtml: '', downloadHtml: '' };
 
   let html = content;
   let imageHtml = '';
+  let chartHtml = '';
+  let downloadHtml = '';
   const foundImages = new Set();
+  const foundCharts = new Set();
+  const foundDownloads = new Set();
 
   // 先統一路徑分隔符號（Windows 反斜線轉正斜線）
   html = html.replace(/\\/g, '/');
 
   // Helper function to add image
   const addImage = (imgSrc, altText = 'Generated Image') => {
-    if (!foundImages.has(imgSrc)) {
-      foundImages.add(imgSrc);
+    // 統一規範化為 API_BASE/images/<filename>
+    // 避免同一張圖片因路徑格式不同被重複渲染
+    let normalizedSrc = imgSrc;
+    // outputs/images/xxx.png → /agentapi/images/xxx.png
+    if (normalizedSrc.startsWith('outputs/images/')) {
+      normalizedSrc = `${IMAGES_BASE}/${normalizedSrc.replace('outputs/images/', '')}`;
+    }
+    // /images/xxx.png → /agentapi/images/xxx.png
+    else if (normalizedSrc.startsWith('/images/')) {
+      normalizedSrc = `${API_BASE}${normalizedSrc}`;
+    }
+    // http://localhost:XXXX/images/xxx.png → /agentapi/images/xxx.png
+    else if (/^https?:\/\/localhost:\d+\/images\//.test(normalizedSrc)) {
+      normalizedSrc = normalizedSrc.replace(/^https?:\/\/localhost:\d+/, API_BASE);
+    }
+    if (!foundImages.has(normalizedSrc)) {
+      foundImages.add(normalizedSrc);
       imageHtml += `<div class="generated-image-container">
-        <img src="${imgSrc}" alt="${altText}" class="generated-image" loading="lazy" />
-        <a href="${imgSrc}" target="_blank" rel="noopener" class="image-link">🔗 View Full Size</a>
+        <img src="${normalizedSrc}" alt="${altText}" class="generated-image" loading="lazy" />
+        <a href="${normalizedSrc}" target="_blank" rel="noopener" class="image-link">🔗 View Full Size</a>
       </div>`;
     }
   };
+
+  // Helper function to add Plotly chart iframe
+  const addChart = (chartPath, title = 'Interactive Chart') => {
+    // 確保使用 API_BASE 路徑
+    let src = chartPath;
+    if (src.startsWith('/charts/')) {
+      src = `${API_BASE}${src}`;
+    } else {
+      // 統一成 API_BASE（防止其他 port 寫法）
+      src = src.replace(/https?:\/\/localhost:\d+/, API_BASE);
+    }
+    if (!foundCharts.has(src)) {
+      foundCharts.add(src);
+      const safeTitle = title.replace(/"/g, '&quot;');
+      chartHtml += `<div class="chart-container">
+        <div class="chart-title">📊 ${safeTitle}</div>
+        <iframe
+          src="${src}"
+          class="chart-iframe"
+          frameborder="0"
+          scrolling="no"
+          title="${safeTitle}"
+        ></iframe>
+        <a href="${src}" target="_blank" rel="noopener" class="chart-link">🔗 獨立開啟圖表</a>
+      </div>`;
+    }
+  };
+
+  // Helper: add download button
+  const addDownload = (url, filename) => {
+    const downloadUrl = url.replace(/https?:\/\/localhost:\d+/, API_BASE);
+    if (!foundDownloads.has(downloadUrl)) {
+      foundDownloads.add(downloadUrl);
+      const ext = filename.split('.').pop().toUpperCase();
+      const iconMap = { PPTX:'📊', XLSX:'📗', CSV:'📄', PDF:'📕', DOCX:'📘', ZIP:'🗜️' };
+      const icon = iconMap[ext] || '📎';
+      downloadHtml += `<div class="download-container">
+        <div class="download-info">
+          <span class="download-icon">${icon}</span>
+          <span class="download-filename">${filename}</span>
+        </div>
+        <a href="${downloadUrl}" download="${filename}" class="download-btn">
+          ⬇ 下載檔案
+        </a>
+      </div>`;
+    }
+  };
+
+  // --- 00. 偵測 DOWNLOAD: URL 格式（最優先）---
+  // 格式: DOWNLOAD: /agentapi/download(s)/<filename> 或 DOWNLOAD: http://localhost:XXXX/download(s)/<filename>
+  const downloadTagRegex = /DOWNLOAD:\s*((?:https?:\/\/localhost:\d+)?\/downloads?\/([\w\-_.%]+))/gi;
+  html = html.replace(downloadTagRegex, (match, url, filename) => {
+    addDownload(url, decodeURIComponent(filename));
+    return '';
+  });
+
+  // 也偵測純 /download(s)/xxx 路徑（不帶 DOWNLOAD: 前綴），包含完整 URL 或相對路徑
+  const downloadUrlRegex = /(?:https?:\/\/localhost:\d+)?\/downloads?\/([\w\-_.%]+)/gi;
+  html = html.replace(downloadUrlRegex, (match, filename) => {
+    addDownload(`${DOWNLOADS_BASE}/${filename}`, decodeURIComponent(filename));
+    return '';
+  });
+
+  // --- 0. 先偵測圖表 URL，優先於一般 URL 處理 ---
+
+  // 0a. Markdown 連結格式: [title](http://localhost:7777/charts/xxx.html)
+  const chartMdLinkRegex = /\[([^\]]*)\]\(((?:https?:\/\/localhost:\d+)?\/charts\/[\w\-_.%]+\.html)\)/gi;
+  html = html.replace(chartMdLinkRegex, (match, text, url) => {
+    addChart(url, text || 'Interactive Chart');
+    return '';
+  });
+
+  // 0b. 純 URL 格式（含或不含 host）: http://localhost:7777/charts/xxx.html 或 /charts/xxx.html
+  const chartUrlRegex = /(?:https?:\/\/localhost:\d+)?(\/charts\/[\w\-_.%]+\.html)/gi;
+  html = html.replace(chartUrlRegex, (match, path) => {
+    const filename = path.split('/').pop().replace('.html', '');
+    const title = filename.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    addChart(path, title);
+    return '';
+  });
+
+  // 0c. 完整 localhost URL 圖片（含 Markdown ![]() 語法與純裸 URL）
+  // 格式: http://localhost:XXXX/images/ComfyUI_XXXXX_.png
+  // 這是 Team Leader 被指示輸出的標準格式，必須優先偵測
+  const fullLocalhostImgMdRegex = /!?\[([^\]]*)\]\((https?:\/\/localhost:\d+\/images\/([\w\-_.]+\.(?:png|jpg|jpeg|webp|gif)))\)/gi;
+  html = html.replace(fullLocalhostImgMdRegex, (match, alt, fullUrl, filename) => {
+    addImage(`${IMAGES_BASE}/${filename}`, alt || 'Generated Image');
+    return '';
+  });
+  const fullLocalhostImgBareRegex = /(?<!["'(])(https?:\/\/localhost:\d+\/images\/([\w\-_.]+\.(?:png|jpg|jpeg|webp|gif)))(?!["')])/gi;
+  html = html.replace(fullLocalhostImgBareRegex, (match, fullUrl, filename) => {
+    addImage(`${IMAGES_BASE}/${filename}`);
+    return '';
+  });
 
   // 1. 處理 Markdown 圖片連結: [text](path/to/image.png)
   // 匹配包含圖片副檔名的 Markdown 連結
@@ -173,7 +378,7 @@ function extractImagesFromContent(content) {
     .replace(/<br><hr>/g, '<hr>')
     .replace(/<hr><br>/g, '<hr>');
 
-  return { textHtml, imageHtml };
+  return { textHtml, imageHtml, chartHtml, downloadHtml };
 }
 
 export default Message;

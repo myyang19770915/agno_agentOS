@@ -7,6 +7,7 @@ function App() {
   const chatRef = useRef(null);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [sessionRefreshTrigger, setSessionRefreshTrigger] = useState(0);
+  const [isTeamMode, setIsTeamMode] = useState(false); // 提升到 App 層
 
   // 處理從側欄選擇 session
   const handleSelectSession = (sessionId, runs) => {
@@ -40,11 +41,14 @@ function App() {
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         refreshTrigger={sessionRefreshTrigger}
+        isTeamMode={isTeamMode}
       />
       <ChatInterface
         ref={chatRef}
         onSessionChange={handleSessionChange}
         onMessageSent={handleMessageSent}
+        isTeamMode={isTeamMode}
+        onTeamModeChange={setIsTeamMode}
       />
     </div>
   )

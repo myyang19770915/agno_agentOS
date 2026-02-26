@@ -1,0 +1,212 @@
+{
+  "1": {
+    "inputs": {
+      "ckpt_name": "flux1-dev-fp8.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load Checkpoint"
+    }
+  },
+  "2": {
+    "inputs": {
+      "guidance": 3.5,
+      "conditioning": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "FluxGuidance",
+    "_meta": {
+      "title": "FluxGuidance"
+    }
+  },
+  "3": {
+    "inputs": {
+      "text": "",
+      "speak_and_recognation": {
+        "__value__": [
+          false,
+          true
+        ]
+      },
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode 負面提示詞"
+    }
+  },
+  "4": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "5": {
+    "inputs": {
+      "samples": [
+        "6",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "6": {
+    "inputs": {
+      "seed": 500640327132191,
+      "steps": 25,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "1",
+        0
+      ],
+      "positive": [
+        "2",
+        0
+      ],
+      "negative": [
+        "3",
+        0
+      ],
+      "latent_image": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "7": {
+    "inputs": {
+      "text": [
+        "11",
+        0
+      ],
+      "speak_and_recognation": {
+        "__value__": [
+          false,
+          true
+        ]
+      },
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode 正面提示詞"
+    }
+  },
+  "9": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "16",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "10": {
+    "inputs": {
+      "style1": "||| PHOTOGRAPHY",
+      "style2": "No Style",
+      "style3": "No Style",
+      "style4": "No Style"
+    },
+    "class_type": "PromptMultipleStylesSelectorNikosis",
+    "_meta": {
+      "title": "Styles Selector (nikosis)"
+    }
+  },
+  "11": {
+    "inputs": {
+      "text_a": [
+        "15",
+        0
+      ],
+      "text_b": [
+        "10",
+        0
+      ],
+      "text_c": "",
+      "text_d": "",
+      "delimiter": ", ",
+      "clean_whitespace": true
+    },
+    "class_type": "TextConcatenateNikosis",
+    "_meta": {
+      "title": "Text Concatenate (nikosis)"
+    }
+  },
+  "15": {
+    "inputs": {
+      "from_translate": "auto",
+      "to_translate": "en",
+      "manual_translate": false,
+      "Manual Trasnlate": "Manual Trasnlate",
+      "text": "一堆年輕人在打籃球, 可愛漫畫風格",
+      "speak_and_recognation": {
+        "__value__": [
+          false,
+          true
+        ]
+      }
+    },
+    "class_type": "GoogleTranslateTextNode",
+    "_meta": {
+      "title": "Google Translate Text Node"
+    }
+  },
+  "16": {
+    "inputs": {
+      "score": 0.7000000000000001,
+      "image": [
+        "5",
+        0
+      ],
+      "alternative_image": [
+        "17",
+        0
+      ]
+    },
+    "class_type": "NSFWDetection",
+    "_meta": {
+      "title": "NSFWDetection"
+    }
+  },
+  "17": {
+    "inputs": {
+      "image": "NSFW.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  }
+}

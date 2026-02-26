@@ -21,8 +21,9 @@
 
 | 類別 | 技術 |
 |------|------|
-| **AI 框架** | [Agno](https://github.com/agno-agi/agno) 2.3.24+ |
+| **AI 框架** | [Agno](https://github.com/agno-agi/agno) 2.5.3+ |
 | **LLM 閘道** | LiteLLM Proxy |
+| **推薦模型** | `gpt-4o-mini`（Tool Calling 穩定）|
 | **後端框架** | FastAPI (由 AgentOS 自動提供) |
 | **資料庫** | SQLite (Session 記憶) |
 | **圖片生成** | ComfyUI |
@@ -183,6 +184,7 @@ npm install
 
 ```bash
 # 1️⃣ 先啟動圖片服務 (port 9999)
+source .venv/bin/activate
 cd backend
 python image_agent.py
 
@@ -191,6 +193,7 @@ python main.py
 
 # 3️⃣ 最後啟動前端 (port 3001)
 cd frontend
+npm install # 安裝套件
 npm run dev
 ```
 
@@ -522,6 +525,120 @@ Async function can't be used with synchronous agent.run()
 - Linux: `outputs/images/z-image_00001_.png`
 
 前端應處理兩種格式。
+
+### 4. `azure_ai/deepseek-v3-0324` Tool Calling 有問題 ❌
+
+**症狀**:
+```
+WARNING  Could not run function generate_image_with_comfyui()
+ERROR    1 validation error for generate_image_with_comfyui
+         image_prompt
+           Missing required argument [type=missing_argument, input_value=ArgsKwargs(()), input_type=ArgsKwargs]
+```
+
+**原因**: `azure_ai/deepseek-v3-0324` 透過 LiteLLM 呼叫工具時，會回傳空的 `arguments: ""` 或 `arguments: null`，導致 agno 以空參數執行工具函數，pydantic 驗證失敗。
+
+**受影響模型**:
+| 模型 | 狀態 |
+|---|---|
+| `azure_ai/deepseek-v3-0324` | ❌ Tool Calling 參數經常為空 |
+| `deepseek-chat` | ⚠️ 偶發同樣問題 |
+| `gpt-5-mini` | ✅ Tool Calling 正常穩定 |
+
+**解決方案**: 改用 `gpt-5-mini` 或其他 OpenAI 系列模型
+
+```bash
+# .env 設定
+MODEL_ID=gpt-5-mini
+```
+
+**臨時緩解措施** (agno `image_agent.py` 已套用):
+- `image_prompt` 參數改為有預設值 `str = ""`，避免 `ValidationError`
+- 函數內部偵測空值，回傳錯誤訊息讓 LLM 重試
+- Agent instructions 最頂端明確要求 LLM 呼叫工具時必須帶 `image_prompt`
+
+---
+
+## 對外部署設定 (2026-02-25 更新)
+
+### 部署架構
+
+| 服務 | Port | 路徑前綴 | 說明 |
+|------|------|----------|------|
+| **Backend (AgentOS)** | `8013` | `/agentapi` | FastAPI root_path，反向代理 strip prefix |
+| **Frontend (Vite/React)** | `8014` | `/agentplatform` | Vite base，靜態資源掛載路徑 |
+| **Image Agent** | `9999` | — | 內部服務，不對外暴露 |
+
+### 反向代理設定 (Nginx)
+
+**開發模式** — 只需一條 Nginx 規則，Vite dev proxy 負責轉發 API：
+
+```nginx
+# 前端 + API（Vite dev proxy 會將 /agentplatform/api/ 轉發到 :8013）
+location /agentplatform/ {
+    proxy_pass http://localhost:8014/agentplatform/;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+}
+```
+
+**生產模式** — 兩條 Nginx 規則（sub-location 優先匹配 API）：
+
+```nginx
+# 後端 API（更具體的路徑，Nginx 優先匹配）
+location /agentplatform/api/ {
+    proxy_pass http://localhost:8013/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # SSE 串流支援
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 300s;
+}
+
+# 前端靜態資源
+location /agentplatform/ {
+    alias /path/to/frontend/dist/;
+    try_files $uri $uri/ /agentplatform/index.html;
+}
+```
+
+### 環境變數
+
+| 變數 | 預設值 | 說明 |
+|------|--------|------|
+| `ROOT_PATH` | `/agentapi` | 後端 FastAPI root_path |
+| `BACKEND_PORT` | `8013` | 後端監聽 port |
+
+### 一鍵部署
+
+```bash
+# 使用部署腳本（含 frontend build + 三服務啟動）
+./deploy.sh
+
+# 或手動分步啟動
+source .venv/bin/activate
+cd backend && python image_agent.py &   # port 9999
+cd backend && python main.py &          # port 8013
+cd frontend && npm run build && npm run preview  # port 8014
+```
+
+### 修改紀錄
+
+本次部署修改涉及以下檔案：
+
+| 檔案 | 修改內容 |
+|------|----------|
+| `backend/main.py` | 新增 `ROOT_PATH`、`BACKEND_PORT` 環境變數；`app.root_path` 設定；port 7777→8013 |
+| `frontend/vite.config.js` | `base: '/agentplatform'`；port 3001→8014；proxy `/agentplatform/api`→`:8013` |
+| `frontend/src/config.js` | **新增** — 集中管理 `API_BASE`(`/agentplatform/api`)、靜態資源路徑 |
+| `frontend/src/services/api.js` | 所有 `fetch()` 路徑加上 `API_BASE` 前綴 |
+| `frontend/src/components/Message.jsx` | 所有 `http://localhost:7777` 替換為 `API_BASE` 相對路徑 |
+| `deploy.sh` | **新增** — 一鍵部署腳本（build + 啟動三服務） |
 
 ---
 
