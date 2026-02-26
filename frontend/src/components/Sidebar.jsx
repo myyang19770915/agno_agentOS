@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getSessions, getSessionRuns, deleteSession } from '../services/api';
 import './Sidebar.css';
 
-function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigger, isTeamMode }) {
+function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigger, isTeamMode, userId }) {
     const [sessions, setSessions] = useState([]);
     const [groupedSessions, setGroupedSessions] = useState({});
     const [expandedDates, setExpandedDates] = useState({});
@@ -37,11 +37,11 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
         } finally {
             setLoading(false);
         }
-    }, [isTeamMode]);
+    }, [isTeamMode, userId]);
 
     useEffect(() => {
         loadSessions();
-    }, [loadSessions, refreshTrigger]);
+    }, [loadSessions, refreshTrigger, userId]);
 
     // 當 currentSessionId 變化時重新載入（新對話可能產生）
     useEffect(() => {

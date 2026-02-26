@@ -1,6 +1,7 @@
-﻿import { useState, useRef } from 'react'
+﻿import { useState, useRef, useEffect } from 'react'
 import Sidebar from './components/Sidebar'
 import ChatInterface from './components/ChatInterface'
+import { initUser, getUserId } from './services/userContext'
 import './App.css'
 
 function App() {
@@ -8,6 +9,15 @@ function App() {
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [sessionRefreshTrigger, setSessionRefreshTrigger] = useState(0);
   const [isTeamMode, setIsTeamMode] = useState(false); // 提升到 App 層
+  const [userId, setUserId] = useState(null);
+
+  // 一進入頁面即向父視窗請求使用者資訊
+  useEffect(() => {
+    initUser(5000).then((emplid) => {
+      setUserId(emplid);
+      console.log('[App] userId resolved:', emplid);
+    });
+  }, []);
 
   // 處理從側欄選擇 session
   const handleSelectSession = (sessionId, runs) => {
@@ -42,6 +52,7 @@ function App() {
         onNewSession={handleNewSession}
         refreshTrigger={sessionRefreshTrigger}
         isTeamMode={isTeamMode}
+        userId={userId}
       />
       <ChatInterface
         ref={chatRef}
@@ -49,6 +60,7 @@ function App() {
         onMessageSent={handleMessageSent}
         isTeamMode={isTeamMode}
         onTeamModeChange={setIsTeamMode}
+        userId={userId}
       />
     </div>
   )

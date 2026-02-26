@@ -1,4 +1,5 @@
 ﻿import { API_BASE } from '../config';
+import { getUserId } from './userContext';
 
 const TEAM_API = `${API_BASE}/teams/creative-team/runs`;
 
@@ -95,15 +96,19 @@ async function* parseSSEStream(response, signal) {
 
 // 串流傳送訊息（單一 Agent）
 export async function* sendMessage(message, sessionId, agentId = 'research-agent', signal) {
+  const params = {
+    message,
+    session_id: sessionId,
+    stream: 'True',
+    monitor: 'True'
+  };
+  const userId = getUserId();
+  if (userId) params.user_id = userId;
+
   const response = await fetch(`${API_BASE}/agents/${agentId}/runs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      message,
-      session_id: sessionId,
-      stream: 'True',
-      monitor: 'True'
-    }),
+    body: new URLSearchParams(params),
     signal,
   });
 
@@ -116,15 +121,19 @@ export async function* sendMessage(message, sessionId, agentId = 'research-agent
 
 // 串流傳送訊息（Team 模式）
 export async function* sendTeamMessage(message, sessionId, signal) {
+  const params = {
+    message,
+    session_id: sessionId,
+    stream: 'True',
+    monitor: 'True'
+  };
+  const userId = getUserId();
+  if (userId) params.user_id = userId;
+
   const response = await fetch(TEAM_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      message,
-      session_id: sessionId,
-      stream: 'True',
-      monitor: 'True'
-    }),
+    body: new URLSearchParams(params),
     signal,
   });
 
@@ -135,9 +144,11 @@ export async function* sendTeamMessage(message, sessionId, signal) {
   yield* parseSSEStream(response, signal);
 }
 
-// 取得 Sessions（依類型: 'agent' 或 'team'）
+// 取得 Sessions（依類型: 'agent' 或 'team'，依 user_id 過濾）
 export async function getSessions(type = 'agent') {
-  const response = await fetch(`${API_BASE}/sessions?type=${type}&limit=100`);
+  const userId = getUserId();
+  const userParam = userId ? `&user_id=${encodeURIComponent(userId)}` : '';
+  const response = await fetch(`${API_BASE}/sessions?type=${type}&limit=100${userParam}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch ${type} sessions`);
   }
@@ -149,7 +160,9 @@ export async function getSessions(type = 'agent') {
 
 // 取得特定 Session 的 Runs（對話歷史）
 export async function getSessionRuns(sessionId, type = 'agent') {
-  const response = await fetch(`${API_BASE}/sessions/${sessionId}/runs?type=${type}`, {
+  const userId = getUserId();
+  const userParam = userId ? `&user_id=${encodeURIComponent(userId)}` : '';
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/runs?type=${type}${userParam}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' }
   });
@@ -163,7 +176,9 @@ export async function getSessionRuns(sessionId, type = 'agent') {
 
 // 刪除 Session
 export async function deleteSession(sessionId, type = 'agent') {
-  const response = await fetch(`${API_BASE}/sessions/${sessionId}?type=${type}`, {
+  const userId = getUserId();
+  const userParam = userId ? `&user_id=${encodeURIComponent(userId)}` : '';
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}?type=${type}${userParam}`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' }
   });
@@ -179,7 +194,9 @@ export async function deleteSession(sessionId, type = 'agent') {
 
 // 重命名 Session
 export async function renameSession(sessionId, newName, type = 'agent') {
-  const response = await fetch(`${API_BASE}/sessions/${sessionId}/rename?type=${type}`, {
+  const userId = getUserId();
+  const userParam = userId ? `&user_id=${encodeURIComponent(userId)}` : '';
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/rename?type=${type}${userParam}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: newName })

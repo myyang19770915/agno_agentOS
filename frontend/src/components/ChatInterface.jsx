@@ -4,7 +4,7 @@ import Message from './Message';
 import ToolStatus from './ToolStatus';
 import './ChatInterface.css';
 
-const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMessageSent, isTeamMode, onTeamModeChange }, ref) {
+const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMessageSent, isTeamMode, onTeamModeChange, userId }, ref) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -379,7 +379,13 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
       <div className="messages-container" ref={messagesContainerRef}>
         {messages.length === 0 && (
           <div className="welcome-message">
-            <h2>👋 Welcome!</h2>
+            <h2>👋 Welcome{userId && userId !== 'unknown' ? `, ${userId}` : ''}!</h2>
+            {userId && (
+              <p className="welcome-user-badge">
+                <span className="user-badge-icon">👤</span>
+                {userId !== 'unknown' ? userId : '未識別使用者'}
+              </p>
+            )}
             {isTeamMode ? (
               <p>I'm a creative team with <strong>Research Agent</strong> and <strong>Image Generator</strong>.<br />Ask me to research topics or create images!</p>
             ) : (
