@@ -85,7 +85,8 @@ app.mount("/images", StaticFiles(directory=output_dir), name="images")
 app.mount("/charts", StaticFiles(directory=CHARTS_DIR, html=True), name="charts")
 
 # 提供可下載的檔案（帶 Content-Disposition: attachment，瀏覽器直接觸發下載）
-@app.get("/download/{filename}")
+# 注意：使用 api_route 同時支援 GET 和 HEAD，因為 AgentOS 不會自動為 GET 路由啟用 HEAD
+@app.api_route("/download/{filename}", methods=["GET", "HEAD"])
 async def download_file(filename: str):
     file_path = os.path.join(DOWNLOADS_DIR, filename)
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
@@ -98,7 +99,7 @@ async def download_file(filename: str):
     )
 
 # 也支援複數形式的路由 /downloads/
-@app.get("/downloads/{filename}")
+@app.api_route("/downloads/{filename}", methods=["GET", "HEAD"])
 async def download_file_plural(filename: str):
     file_path = os.path.join(DOWNLOADS_DIR, filename)
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
