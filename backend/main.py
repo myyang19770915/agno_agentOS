@@ -12,8 +12,10 @@ Creative Research AgentOS - Main Entry Point
 from agno.os import AgentOS
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
+from typing import Optional
 import os
+import httpx
 from agno.db.postgres import PostgresDb
 
 # ============================================================================
@@ -21,6 +23,7 @@ from agno.db.postgres import PostgresDb
 # ============================================================================
 ROOT_PATH = os.getenv("ROOT_PATH", "/agentapi")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8013"))
+IMAGE_AGENT_URL = os.getenv("IMAGE_AGENT_URL", "http://localhost:9999")
 
 
 # 資料庫用於 Session 記憶 (PostgreSQL)
@@ -112,6 +115,79 @@ async def download_file_plural(filename: str):
     )
 
 
+# ============================================================================
+# Image Agent Session Proxy
+# ============================================================================
+# Image Agent 使用獨立的 session table (image_agent_sessions260223)，
+# 避免 team 委派時 session_type 被覆寫。
+# 以下 proxy 路由讓主 AgentOS 能查詢 Image Agent 的 sessions，
+# 前端會合併兩個來源的結果。
+
+@app.api_route("/image-agent/sessions", methods=["GET", "HEAD"])
+async def proxy_image_agent_sessions(
+    limit: int = Query(default=100, ge=1),
+    user_id: Optional[str] = Query(default=None),
+):
+    """Proxy to image agent's sessions endpoint."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            params = {"type": "agent", "limit": limit}
+            if user_id:
+                params["user_id"] = user_id
+            resp = await client.get(f"{IMAGE_AGENT_URL}/sessions", params=params)
+            return resp.json()
+    except Exception:
+        # Image agent 可能未啟動，回傳空結果
+        return {"data": [], "meta": {"page": 1, "limit": limit, "total_count": 0, "total_pages": 0}}
+
+
+@app.api_route("/image-agent/sessions/{session_id}/runs", methods=["GET", "HEAD"])
+async def proxy_image_agent_session_runs(session_id: str):
+    """Proxy to image agent's session runs endpoint."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{IMAGE_AGENT_URL}/sessions/{session_id}/runs",
+                params={"type": "agent"},
+            )
+            return resp.json()
+    except Exception:
+        return {"runs": []}
+
+
+@app.delete("/image-agent/sessions/{session_id}")
+async def proxy_delete_image_agent_session(session_id: str):
+    """Proxy delete to image agent's session endpoint."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.delete(
+                f"{IMAGE_AGENT_URL}/sessions/{session_id}",
+                params={"type": "agent"},
+            )
+            if resp.status_code == 200:
+                try:
+                    return resp.json()
+                except Exception:
+                    return {"success": True}
+        return {"success": True}
+    except Exception:
+        raise HTTPException(status_code=502, detail="Image agent is not available")
+
+
+@app.post("/image-agent/sessions/{session_id}/rename")
+async def proxy_rename_image_agent_session(session_id: str):
+    """Proxy rename to image agent's session endpoint."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{IMAGE_AGENT_URL}/sessions/{session_id}/rename",
+                params={"type": "agent"},
+            )
+            return resp.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="Image agent is not available")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("🚀 Creative Research AgentOS")
@@ -130,6 +206,7 @@ if __name__ == "__main__":
     print(f"  - POST {ROOT_PATH}/teams/creative-team/runs    (Team Mode)")
     print(f"  - GET  {ROOT_PATH}/images/{{filename}}           (Generated Images)")
     print(f"  - GET  {ROOT_PATH}/download/{{filename}}         (Download Generated Files)")
+    print(f"  - GET  {ROOT_PATH}/image-agent/sessions          (Image Agent Sessions Proxy)")
     print()
     print("⚠️  Make sure image_agent.py is running on port 9999!")
     print("=" * 60)

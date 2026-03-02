@@ -37,9 +37,10 @@ model = LiteLLMOpenAI(
 )
 
 # 資料庫用於 Session 記憶 (PostgreSQL)
-# 使用獨立 session table，避免與主 AgentOS (port 7777) 的 team/agent sessions 衝突
+# 使用獨立 session table，避免與主 AgentOS (port 8013) 的 team/agent sessions 衝突
 # 若共用 agent_sessions260223，team 委派到此 RemoteAgent 時，
 # 會用同一個 session_id 寫入 AgentSession(session_type='agent')，覆蓋掉 TeamSession 的 session_type
+# 主 AgentOS 透過 proxy endpoint 查詢此表，前端合併顯示
 db_url = "postgresql://webui:webui@postgresql.database.svc.cluster.local:5432/meeting_records"
 
 db = PostgresDb(

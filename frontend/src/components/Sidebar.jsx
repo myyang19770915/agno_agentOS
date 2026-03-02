@@ -147,7 +147,7 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
         if (onSelectSession) {
             try {
                 const type = isTeamMode ? 'team' : 'agent';
-                const runs = await getSessionRuns(session.session_id, type);
+                const runs = await getSessionRuns(session.session_id, type, session._source);
                 onSelectSession(session.session_id, runs);
             } catch (err) {
                 console.error('Failed to load session runs:', err);
@@ -156,13 +156,13 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
     };
 
     // 處理刪除 session
-    const handleDeleteSession = async (e, sessionId) => {
+    const handleDeleteSession = async (e, session) => {
         e.stopPropagation();
         if (!confirm('確定要刪除這個對話嗎？')) return;
 
         try {
             const type = isTeamMode ? 'team' : 'agent';
-            await deleteSession(sessionId, type);
+            await deleteSession(session.session_id, type, session._source);
             await loadSessions();
         } catch (err) {
             console.error('Failed to delete session:', err);
@@ -226,7 +226,7 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
                                         className={`session-item ${session.session_id === currentSessionId ? 'active' : ''}`}
                                         onClick={() => handleSelectSession(session)}
                                     >
-                                        <span className="session-icon">{isTeamMode ? '👥' : '💬'}</span>
+                                        <span className="session-icon">{isTeamMode ? '👥' : (session._source === 'image-agent' ? '🎨' : '💬')}</span>
                                         <div className="session-info">
                                             <div className="session-title">
                                                 {getSessionPreview(session)}
@@ -242,7 +242,7 @@ function Sidebar({ currentSessionId, onSelectSession, onNewSession, refreshTrigg
                                         </div>
                                         <button
                                             className="delete-btn"
-                                            onClick={(e) => handleDeleteSession(e, session.session_id)}
+                                            onClick={(e) => handleDeleteSession(e, session)}
                                             title="刪除對話"
                                         >
                                             🗑️
