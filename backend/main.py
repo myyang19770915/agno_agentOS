@@ -13,6 +13,7 @@ from agno.os import AgentOS
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi import HTTPException, Query
+from fastapi.middleware.gzip import GZipMiddleware
 from typing import Optional
 import os
 import httpx
@@ -80,6 +81,10 @@ agent_os = AgentOS(
 # 取得 FastAPI app，並設定 root_path（反向代理用）
 app = agent_os.get_app()
 app.root_path = ROOT_PATH
+
+# 啟用 GZip 壓縮中間件 — 對所有 >= 1KB 的回應進行壓縮
+# 現有 4.7MB 圖表 HTML 壓縮後約 1.2MB；新圖表使用 CDN 模式後則 <100KB
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # 掛載圖片輸出目錄為靜態檔案
 app.mount("/images", StaticFiles(directory=output_dir), name="images")

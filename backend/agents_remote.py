@@ -4,6 +4,9 @@ from agno.db.postgres import PostgresDb
 from agno.tools.tavily import TavilyTools
 from agno.team import Team
 from agno.skills import Skills, LocalSkills
+import io
+import sys
+import traceback as _traceback_module
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -11,6 +14,55 @@ from dotenv import load_dotenv
 from agno.tools.python import PythonTools
 from agno.tools.shell import ShellTools
 from agno.tools.sql import SQLTools
+
+
+# ===== 修補 PythonTools：捕獲 stdout/stderr 並回傳完整 traceback =====
+# 原始 PythonTools 使用 exec() 但不重定向 stdout，所有 print() 輸出
+# 直接寫入 server terminal 而非回傳給 agent，導致 agent 無法自我修正。
+class CapturedPythonTools(PythonTools):
+    """覆寫 run_python_code，將 stdout/stderr 重導向後回傳給 agent，
+    讓 agent 能看到 print() 輸出與完整 traceback，實現自我修正。"""
+
+    def run_python_code(self, code: str, variable_to_return=None) -> str:  # type: ignore[override]
+        captured_stdout = io.StringIO()
+        captured_stderr = io.StringIO()
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        sys.stdout = captured_stdout
+        sys.stderr = captured_stderr
+        try:
+            exec(code, self.safe_globals, self.safe_locals)  # noqa: S102
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+            stdout_output = captured_stdout.getvalue()
+            stderr_output = captured_stderr.getvalue()
+
+            if variable_to_return:
+                variable_value = self.safe_locals.get(variable_to_return)
+                if variable_value is None:
+                    return f"Variable {variable_to_return} not found"
+                return str(variable_value)
+
+            parts: list[str] = []
+            if stdout_output:
+                parts.append(stdout_output.rstrip())
+            if stderr_output:
+                parts.append(f"[stderr]:\n{stderr_output.rstrip()}")
+            return "\n".join(parts) if parts else "successfully ran python code"
+
+        except Exception as e:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            stdout_output = captured_stdout.getvalue()
+            stderr_output = captured_stderr.getvalue()
+            full_traceback = _traceback_module.format_exc()
+            parts = []
+            if stdout_output:
+                parts.append(stdout_output.rstrip())
+            if stderr_output:
+                parts.append(f"[stderr]:\n{stderr_output.rstrip()}")
+            parts.append(f"Error: {e}\nTraceback:\n{full_traceback}")
+            return "\n".join(parts)
 
 load_dotenv()
 
@@ -66,101 +118,113 @@ research_agent = Agent(
     model=model,
     db=db,
     tools=[tavily_tools,
-           PythonTools(base_dir=Path(__file__).parent),
+           CapturedPythonTools(base_dir=Path(__file__).parent),
            ShellTools(),
            SQLTools(db_url=db_url, schema="ai")],
     skills=agent_skills,  # 加入 Skills
     tool_call_limit=10,    # 限制最多5次工具呼叫，避免循環搜尋
-    instructions="""使用繁體中文回答, You are a helpful research assistant with access to web search, Python code execution, and shell commands.
+instructions="""使用繁體中文回答, You are a helpful research assistant with access to web search, Python code execution, and shell commands.
 
 ## Core Capabilities
-1. **Web Search (Tavily)**: Search for accurate, up-to-date information online.
-2. **Python Execution (PythonTools)**: Write and run Python code to process data, perform calculations, or generate visualizations.
-3. **Shell Execution (ShellTools)**: Run shell commands for file operations or system queries.
-4. **Database (SQLTools)**: Query the PostgreSQL database directly using SQL.
-   - `list_tables()` — list all available tables in the database
-   - `describe_table(table_name)` — show the schema (columns, types) of a specific table
-   - `run_sql_query(query)` — execute any SQL SELECT/INSERT/UPDATE/DELETE query
-   - Default schema: `ai`. When querying, use fully-qualified names: `ai.<table_name>`
-   - Always run `list_tables()` first if you are unsure which tables exist.
-5. **Skills**: Access specialized built-in skills when needed.
+    1. **Web Search (Tavily)**: Search for accurate, up-to-date information online.
+    2. **Python Execution (CapturedPythonTools)**: Write and run Python code to process data, perform calculations, or generate visualizations.
+    3. **Shell Execution (ShellTools)**: Run shell commands for file operations or system queries.
+    4. **Database (SQLTools)**: Query the PostgreSQL database directly using SQL.
+    - `list_tables()` — list all available tables in the database
+    - `describe_table(table_name)` — show the schema (columns, types) of a specific table
+    - `run_sql_query(query)` — execute any SQL SELECT/INSERT/UPDATE/DELETE query
+    - Default schema: `ai`. When querying, use fully-qualified names: `ai.<table_name>`
+    - Always run `list_tables()` first if you are unsure which tables exist.
+    5. **Skills**: Access specialized built-in skills when needed.
 
 ## Workflow Guidelines
-1. For information requests: use Tavily search first, cite all sources.
-2. For data analysis or calculations: write and execute Python code directly.
-3. For visualizations: ALWAYS use Plotly (see rules below).
-4. Respond in the same language as the user's question.
-5. You have access to various skills - use get_skill_instructions() to load skill details when needed.
+    1. For information requests: use Tavily search first, cite all sources.
+    2. For data analysis or calculations: write and execute Python code directly.
+    3. For visualizations: ALWAYS use Plotly (see rules below).
+    4. Respond in the same language as the user's question.
+    5. You have access to various skills - use get_skill_instructions() to load skill details when needed.
 
 ## Plotly Visualization Rules (MANDATORY)
-Whenever the user asks for a chart, graph, plot, or any visualization:
+    Whenever the user asks for a chart, graph, plot, or any visualization:
 
-1. **Always use Plotly** - do NOT use matplotlib, seaborn, or any other library.
-2. **Save as HTML** to the path: `charts/<descriptive_filename>.html`
-   - Filename must be lowercase English with underscores, e.g.: `gdp_growth.html`, `sales_trend.html`
-3. Use `fig.write_html()` to save without opening a browser.
-4. **Return the access URL** in your final response: `http://localhost:7777/charts/<filename>.html`
+    1. **Always use Plotly** - do NOT use matplotlib, seaborn, or any other library.
+    2. **Save as HTML** to the path: `charts/<descriptive_filename>.html`
+        - Filename must be lowercase English with underscores, e.g.: `gdp_growth.html`, `sales_trend.html`
+    3. Use `fig.write_html()` to save without opening a browser.
+    4. **Return the access URL** in your final response: `http://localhost:7777/charts/<filename>.html`
 
-### Plotly Code Template:
-```python
-import plotly.graph_objects as go  # or plotly.express as px
-import os
+    ### Plotly Code Template:
+    ```python
+    import plotly.graph_objects as go  # or plotly.express as px
+    import os
+    import traceback
 
-# --- your chart logic here ---
-fig = go.Figure(...)  # or px.bar(...), px.line(...), etc.
-
-# Save
-os.makedirs("charts", exist_ok=True)
-output_path = "charts/<filename>.html"
-fig.write_html(output_path)
-print(f"Chart saved to: {output_path}")
-print(f"View at: http://localhost:7777/charts/<filename>.html")
-```
-
-### Required Response Format After Generating a Chart:
-After saving the chart, include the full URL on its own line in the reply:
-```
-http://localhost:7777/charts/<filename>.html
-```
-The frontend will automatically detect this URL and render the chart as an embedded interactive frame. Do NOT use "URL:" prefix or Markdown link syntax — just a plain URL on its own line.
+    try:
+        # --- your chart logic here ---
+        # Example: fig = px.bar(...)
+        
+        # Ensure directory exists
+        os.makedirs("charts", exist_ok=True)
+        output_path = "charts/<filename>.html"
+        # include_plotlyjs='cdn' ← 關鍵：改用 CDN 載入 Plotly.js，
+        # 使每個 HTML 從 4.7MB 縮小至 ~60KB（節省 98%），瀏覽器可快取 Plotly.js
+        fig.write_html(output_path, include_plotlyjs='cdn')
+        print(f"Success: Chart saved to {output_path}")
+        print(f"View at: http://localhost:7777/charts/<filename>.html")
+    except Exception as e:
+        print(f"Error: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+    ```
+    Required Response Format After Generating a Chart:
+    After saving the chart, include the full URL on its own line in the reply:
+        http://localhost:7777/charts/<filename>.html
+    The frontend will automatically detect this URL and render the chart as an embedded interactive frame. Do NOT use "URL:" prefix or Markdown link syntax — just a plain URL on its own line.
 
 ## Downloadable File Rules
-When generating any downloadable file (e.g. `.pptx`, `.xlsx`, `.csv`, `.pdf`, `.zip`, `.docx`):
-1. Always save the file to the `downloads/` directory (create it if needed):
-   ```python
-   import os
-   os.makedirs('downloads', exist_ok=True)
-   # save to: downloads/<filename>
-   ```
-2. **CRITICAL: Verify the file was actually created before providing the download link!**
-   - After running Python code, CHECK the output for errors (e.g. "Error running python code", traceback, exceptions).
-   - If ANY error occurred during file generation, DO NOT output the DOWNLOAD link. Instead, inform the user about the error and suggest fixes.
-   - Only if the code executed successfully AND the file exists, include this exact line:
-   ```
-   DOWNLOAD: http://localhost:7777/download/<filename>
-   ```
-   The frontend will automatically render a download button for the user.
-3. **Never assume a file was created just because you wrote code to create it.** Always verify via the tool output.
+    When generating any downloadable file (e.g. .pptx, .xlsx, .csv, .pdf, .zip, .docx):
+
+    Always save the file to the downloads/ directory (create it if needed):
+
+        ```Python
+        import os
+        os.makedirs('downloads', exist_ok=True)
+        # save to: downloads/<filename>
+        ```
+    CRITICAL: Verify the file was actually created before providing the download link!
+
+        Use os.path.exists('downloads/<filename>') within your Python code to confirm success.
+
+        If ANY error occurred or the file is missing, DO NOT output the DOWNLOAD link. Instead, inform the user about the error and suggest fixes.
+
+        Only if the code executed successfully AND the file exists, include this exact line:
+
+        DOWNLOAD: http://localhost:7777/download/<filename>
+        The frontend will automatically render a download button for the user.
 
 ## General Coding Rules
-- Always add `print()` at the end of code to output the result.
-- **MANDATORY: Wrap ALL generated Python code in try/except!** Every code block you write MUST follow this pattern:
-  ```python
-  try:
-      # ... your main logic here ...
-      print("Success: <describe result>")
-  except Exception as e:
-      print(f"Error: {e}")
-  ```
-  This ensures that when an error occurs, you receive a clear error message and can fix and retry the code.
-  NEVER write bare code without try/except — even simple scripts can fail due to missing packages, API errors, or data issues.
-- When you receive an "Error: ..." result from Python execution, analyze the error, fix the code, and retry. Do NOT give up after the first failure — attempt at least 2 retries with fixes.
-- For file paths, always use relative paths starting from the project root.
-- **Pre-installed packages (DO NOT re-install)**: `numpy`, `pandas`, `plotly`, `scipy`, `matplotlib` — just `import` them directly, no installation needed.
-- **If you must install a new package**, ALWAYS use ShellTools with this exact format:
-  `run_shell_command(['uv', 'pip', 'install', '套件名稱'])`
-  Do NOT use `pip install`, do NOT use `python -m pip`, do NOT use `python -m uv` — only `uv` directly via ShellTools.
-    """,
+    Always add print() at the end of code to output the result.
+
+    MANDATORY: Wrap ALL generated Python code in try/except! Every code block you write MUST follow this pattern:
+
+    ```Python
+    import traceback
+    try:
+        # ... your main logic here ...
+        print("Success: <describe result>")
+    except Exception as e:
+        print(f"Error: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+    ```
+    Self-Correction Logic: When you receive an "Error: ..." or "Traceback: ..." result, analyze the error (especially the line number and exception type), fix the code, and retry. Do NOT give up after the first failure — attempt at least 2 retries with fixes.
+
+    For file paths, always use relative paths starting from the project root.
+
+    Pre-installed packages (DO NOT re-install): numpy, pandas, plotly, scipy, matplotlib — just import them directly, no installation needed.
+
+    If you must install a new package, ALWAYS use ShellTools with this exact format:
+    run_shell_command(['uv', 'pip', 'install', '套件名稱'])
+    Do NOT use pip install, do NOT use python -m pip, do NOT use python -m uv — only uv directly via ShellTools.
+""",
     add_history_to_context=True,
     num_history_runs=5,
     add_datetime_to_context=True,
@@ -194,7 +258,7 @@ creative_team = Team(
 ## Delegation Rules
 - **Information / research** → Research Agent (Tavily search)
 - **Database queries** → Research Agent (SQLTools: list tables, describe schema, run SQL)
-- **Data analysis / calculations** → Research Agent (PythonTools)
+- **Data analysis / calculations** → Research Agent (CapturedPythonTools)
 - **Charts / visualizations** → Research Agent (Plotly → saves to `charts/`, returns `http://localhost:7777/charts/<name>.html`)
 - **Downloadable files** (pptx, xlsx, csv, pdf) → Research Agent (saves to `downloads/`, returns `DOWNLOAD: http://localhost:7777/download/<filename>`)
 - **Images / illustrations / artwork** → Image Generator (ComfyUI)
