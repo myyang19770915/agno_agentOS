@@ -4,6 +4,21 @@ import Message from './Message';
 import ToolStatus from './ToolStatus';
 import './ChatInterface.css';
 
+// 支援的檔案類型
+const ACCEPTED_FILE_TYPES = [
+  // 圖片
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+  // 音訊
+  'audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/ogg',
+  // 影片
+  'video/mp4', 'video/webm', 'video/ogg',
+  // 文件
+  'application/pdf',
+  'text/csv', 'text/plain',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'application/json',
+].join(',');
+
 const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMessageSent, isTeamMode, onTeamModeChange, userId }, ref) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -13,11 +28,13 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
   const [currentAgent, setCurrentAgent] = useState(null);
   const [agents, setAgents] = useState([]);  // 可用 Agent 列表
   const [selectedAgent, setSelectedAgent] = useState('');  // 選中的 Agent ID
+  const [uploadFiles, setUploadFiles] = useState([]);  // 已選擇的上傳檔案
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
   const abortControllerRef = useRef(null);
   const inactivityTimerRef = useRef(null);
+  const fileInputRef = useRef(null);
   const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000; // 3 分鐘無事件則逾時
 
   // 檢查是否接近底部（用於決定是否自動滾動）
@@ -149,11 +166,19 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if ((!input.trim() && uploadFiles.length === 0) || isLoading) return;
 
-    const userMessage = input.trim();
+    const userMessage = input.trim() || (uploadFiles.length > 0 ? '請分析上傳的檔案' : '');
+    const filesToSend = [...uploadFiles];  // 保存當前檔案後清除
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setUploadFiles([]);
+
+    // 組合使用者訊息（顯示檔案名稱）
+    const fileNames = filesToSend.map(f => f.name);
+    const displayContent = fileNames.length > 0
+      ? `${userMessage}\n\n📎 ${fileNames.join(', ')}`
+      : userMessage;
+    setMessages(prev => [...prev, { role: 'user', content: displayContent }]);
     setIsLoading(true);
     setActiveTools([]);
     setCurrentAgent(null);
@@ -196,10 +221,10 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
     let assistantContent = '';
 
     try {
-      // 根據模式選擇 API
+      // 根據模式選擇 API（傳送檔案）
       const messageStream = isTeamMode
-        ? sendTeamMessage(userMessage, sessionId, abortController.signal)
-        : sendMessage(userMessage, sessionId, selectedAgent, abortController.signal);
+        ? sendTeamMessage(userMessage, sessionId, abortController.signal, filesToSend)
+        : sendMessage(userMessage, sessionId, selectedAgent, abortController.signal, filesToSend);
 
       let isFirstEvent = true;
       for await (const event of messageStream) {
@@ -452,15 +477,76 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
         <div ref={messagesEndRef} />
       </div>
 
+      {/* 檔案預覽區 */}
+      {uploadFiles.length > 0 && (
+        <div className="file-preview-bar">
+          {uploadFiles.map((file, idx) => (
+            <div key={idx} className="file-preview-item">
+              <span className="file-preview-icon">
+                {file.type.startsWith('image/') ? '🖼️' :
+                 file.type.startsWith('audio/') ? '🎧' :
+                 file.type.startsWith('video/') ? '🎬' :
+                 file.type === 'application/pdf' ? '📄' :
+                 '📎'}
+              </span>
+              <span className="file-preview-name" title={file.name}>
+                {file.name.length > 20 ? file.name.slice(0, 17) + '...' : file.name}
+              </span>
+              <span className="file-preview-size">
+                {(file.size / 1024).toFixed(0)}KB
+              </span>
+              <button
+                type="button"
+                className="file-preview-remove"
+                onClick={() => setUploadFiles(prev => prev.filter((_, i) => i !== idx))}
+                title="移除檔案"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="input-form">
+        {/* 隱藏的檔案輸入框 */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          style={{ display: 'none' }}
+          multiple
+          accept={ACCEPTED_FILE_TYPES}
+          onChange={(e) => {
+            const newFiles = Array.from(e.target.files);
+            if (newFiles.length > 0) {
+              setUploadFiles(prev => [...prev, ...newFiles]);
+            }
+            // 重置 input 以便同一檔案可再次選擇
+            e.target.value = '';
+          }}
+        />
+        {/* 上傳檔案按鈕 */}
+        <button
+          type="button"
+          className="upload-btn"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isLoading}
+          title="上傳檔案（圖片、音訊、影片、PDF、CSV、DOCX、TXT、JSON）"
+        >
+          {/* 迴紙針圖示 */}
+          <span className="paperclip-icon">🧷</span>
+          {uploadFiles.length > 0 && (
+            <span className="upload-badge">{uploadFiles.length}</span>
+          )}
+        </button>
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your message..."
+          placeholder={uploadFiles.length > 0 ? `已選擇 ${uploadFiles.length} 個檔案，輸入訊息…` : 'Type your message...'}
           disabled={isLoading}
         />
-        <button type="submit" disabled={isLoading || !input.trim()}>
+        <button type="submit" disabled={isLoading || (!input.trim() && uploadFiles.length === 0)}>
           Send
         </button>
       </form>

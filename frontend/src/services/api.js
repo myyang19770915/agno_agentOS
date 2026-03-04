@@ -94,21 +94,79 @@ async function* parseSSEStream(response, signal) {
   }
 }
 
-// 串流傳送訊息（單一 Agent）
-export async function* sendMessage(message, sessionId, agentId = 'research-agent', signal) {
-  const params = {
-    message,
-    session_id: sessionId,
-    stream: 'True',
-    monitor: 'True'
-  };
+// ============================================================================
+// 文件類型常數
+// ============================================================================
+const DOCUMENT_EXTENSIONS = ['.pdf', '.csv', '.txt', '.json', '.docx', '.doc'];
+
+function isDocumentFile(file) {
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  return DOCUMENT_EXTENSIONS.includes(ext);
+}
+
+/**
+ * 將文件檔（PDF/DOCX/CSV/TXT/JSON）送到後端 /extract-text 提取文字。
+ * 回傳提取結果陣列 [{filename, text}]。
+ */
+async function extractDocumentTexts(docFiles) {
+  if (!docFiles || docFiles.length === 0) return [];
+  const formData = new FormData();
+  docFiles.forEach(f => formData.append('files', f));
+  const resp = await fetch(`${API_BASE}/extract-text`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!resp.ok) {
+    console.error('[extract-text] failed:', resp.status);
+    return docFiles.map(f => ({ filename: f.name, text: `[無法提取 ${f.name}]` }));
+  }
+  return resp.json();
+}
+
+/**
+ * 將檔案分為圖片與文件，文件先提取文字附加到 message，
+ * 圖片照原樣傳給 Agno 的 /runs endpoint。
+ */
+async function prepareMessageAndFiles(message, files) {
+  if (!files || files.length === 0) return { finalMessage: message, imageFiles: [] };
+
+  const imageFiles = files.filter(f => !isDocumentFile(f));
+  const docFiles = files.filter(f => isDocumentFile(f));
+
+  let finalMessage = message;
+  if (docFiles.length > 0) {
+    const results = await extractDocumentTexts(docFiles);
+    const docTexts = results.map(r =>
+      r.text && r.text.trim()
+        ? `[附件：${r.filename}]\n${r.text.trim()}`
+        : `[附件：${r.filename}（無法提取文字）]`
+    );
+    finalMessage = message + '\n\n---\n' + docTexts.join('\n\n---\n');
+    console.log(`[DocExtract] 前端已提取 ${docFiles.length} 個文件文字`);
+  }
+
+  return { finalMessage, imageFiles };
+}
+
+// 串流傳送訊息（單一 Agent），支援檔案上傳
+export async function* sendMessage(message, sessionId, agentId = 'research-agent', signal, files = []) {
+  // 分離文件與圖片：文件提取文字附加到 message，圖片照原樣傳
+  const { finalMessage, imageFiles } = await prepareMessageAndFiles(message, files);
+
+  const formData = new FormData();
+  formData.append('message', finalMessage);
+  formData.append('session_id', sessionId);
+  formData.append('stream', 'True');
+  formData.append('monitor', 'True');
   const userId = getUserId();
-  if (userId) params.user_id = userId;
+  if (userId) formData.append('user_id', userId);
+
+  // 只附加圖片檔（文件已轉為文字）
+  imageFiles.forEach(file => formData.append('files', file));
 
   const response = await fetch(`${API_BASE}/agents/${agentId}/runs`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams(params),
+    body: formData,
     signal,
   });
 
@@ -119,21 +177,25 @@ export async function* sendMessage(message, sessionId, agentId = 'research-agent
   yield* parseSSEStream(response, signal);
 }
 
-// 串流傳送訊息（Team 模式）
-export async function* sendTeamMessage(message, sessionId, signal) {
-  const params = {
-    message,
-    session_id: sessionId,
-    stream: 'True',
-    monitor: 'True'
-  };
+// 串流傳送訊息（Team 模式），支援檔案上傳
+export async function* sendTeamMessage(message, sessionId, signal, files = []) {
+  // 分離文件與圖片：文件提取文字附加到 message，圖片照原樣傳
+  const { finalMessage, imageFiles } = await prepareMessageAndFiles(message, files);
+
+  const formData = new FormData();
+  formData.append('message', finalMessage);
+  formData.append('session_id', sessionId);
+  formData.append('stream', 'True');
+  formData.append('monitor', 'True');
   const userId = getUserId();
-  if (userId) params.user_id = userId;
+  if (userId) formData.append('user_id', userId);
+
+  // 只附加圖片檔（文件已轉為文字）
+  imageFiles.forEach(file => formData.append('files', file));
 
   const response = await fetch(TEAM_API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams(params),
+    body: formData,
     signal,
   });
 

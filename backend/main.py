@@ -12,10 +12,11 @@ Creative Research AgentOS - Main Entry Point
 from agno.os import AgentOS
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from fastapi import HTTPException, Query
+from fastapi import HTTPException, Query, UploadFile, File
 from fastapi.middleware.gzip import GZipMiddleware
 from typing import Optional
 import os
+import io
 import httpx
 from agno.db.postgres import PostgresDb
 
@@ -25,6 +26,46 @@ from agno.db.postgres import PostgresDb
 ROOT_PATH = os.getenv("ROOT_PATH", "/agentapi")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8013"))
 IMAGE_AGENT_URL = os.getenv("IMAGE_AGENT_URL", "http://localhost:9999")
+
+
+# ============================================================================
+# 文件類型：不支援直接傳給 LLM 的格式，需先提取文字
+# ============================================================================
+DOCUMENT_CONTENT_TYPES = {
+    "application/pdf",
+    "text/csv",
+    "text/plain",
+    "application/json",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+}
+
+DOCUMENT_EXTENSIONS = {".pdf", ".csv", ".txt", ".json", ".docx", ".doc"}
+
+
+def _is_document(filename: str, content_type: str) -> bool:
+    """判斷是否為需要文字提取的文件類型（非圖片/音訊/影片）。"""
+    ext = os.path.splitext(filename)[1].lower() if filename else ""
+    return content_type in DOCUMENT_CONTENT_TYPES or ext in DOCUMENT_EXTENSIONS
+
+
+def _extract_text(filename: str, content_type: str, data: bytes) -> str:
+    """從上傳的文件中提取純文字。"""
+    try:
+        if content_type == "application/pdf" or filename.endswith(".pdf"):
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(data))
+            pages = [page.extract_text() or "" for page in reader.pages]
+            return "\n\n".join(p.strip() for p in pages if p.strip())
+        elif content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or filename.endswith(".docx"):
+            import docx
+            doc = docx.Document(io.BytesIO(data))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        elif content_type in ("text/csv", "text/plain", "application/json") or any(filename.endswith(e) for e in (".csv", ".txt", ".json")):
+            return data.decode("utf-8", errors="replace")
+    except Exception as e:
+        return f"[無法解析 {filename}：{e}]"
+    return ""
 
 
 # 資料庫用於 Session 記憶 (PostgreSQL)
@@ -83,7 +124,6 @@ app = agent_os.get_app()
 app.root_path = ROOT_PATH
 
 # 啟用 GZip 壓縮中間件 — 對所有 >= 1KB 的回應進行壓縮
-# 現有 4.7MB 圖表 HTML 壓縮後約 1.2MB；新圖表使用 CDN 模式後則 <100KB
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # 掛載圖片輸出目錄為靜態檔案
@@ -118,6 +158,26 @@ async def download_file_plural(filename: str):
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ============================================================================
+# 文件文字提取 API（前端上傳文件時先呼叫此端點提取文字）
+# ============================================================================
+from typing import List
+
+@app.post("/extract-text")
+async def extract_text_endpoint(files: List[UploadFile] = File(...)):
+    """
+    接收多個文件檔（PDF/DOCX/CSV/TXT/JSON），回傳提取的純文字。
+    前端收到後會把文字附加到 message，再呼叫 Agno 的 /runs endpoint。
+    """
+    results = []
+    for f in files:
+        data = await f.read()
+        text = _extract_text(f.filename or "", f.content_type or "", data)
+        results.append({"filename": f.filename, "text": text})
+        print(f"[extract-text] 提取 {f.filename} → {len(text)} 字元")
+    return results
 
 
 # ============================================================================
