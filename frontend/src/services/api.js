@@ -11,7 +11,8 @@ export async function getAgents() {
   }
   const data = await response.json();
   // AgentOS 回傳格式: { value: [...], Count: n }
-  return data.value || data || [];
+  const agents = data.value || data || [];
+  return agents.filter((agent) => agent?.is_component !== true);
 }
 
 // 產生 UUID
@@ -40,11 +41,59 @@ export function clearSession() {
 }
 
 // SSE 串流解析共用函數
+function normalizeEventName(name) {
+  if (!name) return '';
+
+  return String(name)
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+}
+
 async function* parseSSEStream(response, signal) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let currentEvent = null;
+  let dataLines = [];
+
+  const flushEvent = () => {
+    if (dataLines.length === 0) {
+      currentEvent = null;
+      return null;
+    }
+
+    const dataStr = dataLines.join('\n');
+    dataLines = [];
+
+    if (dataStr === '[DONE]') {
+      currentEvent = null;
+      return null;
+    }
+
+    try {
+      const data = JSON.parse(dataStr);
+      const payloadEvent = data.event || data.type || currentEvent;
+
+      if (currentEvent) {
+        data.sseEvent = currentEvent;
+      }
+      if (!data.event && currentEvent) {
+        data.event = currentEvent;
+      }
+
+      data.normalizedEvent = normalizeEventName(payloadEvent);
+      currentEvent = null;
+      return data;
+    } catch (e) {
+      console.error('Error parsing SSE data:', e, dataStr);
+      currentEvent = null;
+      return null;
+    }
+  };
 
   // 若 AbortSignal 觸發，立即關閉 reader
   if (signal) {
@@ -71,23 +120,19 @@ async function* parseSSEStream(response, signal) {
         if (line.startsWith('event: ')) {
           currentEvent = line.slice(7).trim();
         } else if (line.startsWith('data: ')) {
-          try {
-            const dataStr = line.slice(6);
-            if (dataStr === '[DONE]') continue;
-
-            const data = JSON.parse(dataStr);
-            if (currentEvent) {
-              data.event = currentEvent;
-            }
-            yield data;
-            currentEvent = null;
-          } catch (e) {
-            console.error('Error parsing SSE data:', e);
-          }
+          dataLines.push(line.slice(6));
         } else if (trimmedLine === '') {
-          currentEvent = null;
+          const parsedEvent = flushEvent();
+          if (parsedEvent) {
+            yield parsedEvent;
+          }
         }
       }
+    }
+
+    const parsedEvent = flushEvent();
+    if (parsedEvent) {
+      yield parsedEvent;
     }
   } finally {
     reader.cancel().catch(() => {});
@@ -125,7 +170,8 @@ async function extractDocumentTexts(docFiles) {
 
 /**
  * 將檔案分為圖片與文件，文件先提取文字附加到 message，
- * 圖片照原樣傳給 Agno 的 /runs endpoint。
+ * 圖片預先上傳到 /upload-image 取得路徑（供 OCR 工具使用），
+ * 並照原樣傳給 Agno 的 /runs endpoint 作為視覺輸入。
  */
 async function prepareMessageAndFiles(message, files) {
   if (!files || files.length === 0) return { finalMessage: message, imageFiles: [] };
@@ -134,6 +180,8 @@ async function prepareMessageAndFiles(message, files) {
   const docFiles = files.filter(f => isDocumentFile(f));
 
   let finalMessage = message;
+
+  // 文件：提取文字後附加到訊息
   if (docFiles.length > 0) {
     const results = await extractDocumentTexts(docFiles);
     const docTexts = results.map(r =>
@@ -141,8 +189,30 @@ async function prepareMessageAndFiles(message, files) {
         ? `[附件：${r.filename}]\n${r.text.trim()}`
         : `[附件：${r.filename}（無法提取文字）]`
     );
-    finalMessage = message + '\n\n---\n' + docTexts.join('\n\n---\n');
+    finalMessage = finalMessage + '\n\n---\n' + docTexts.join('\n\n---\n');
     console.log(`[DocExtract] 前端已提取 ${docFiles.length} 個文件文字`);
+  }
+
+  // 圖片：預先上傳取得本地路徑，附加 IMAGE_FILE hint 供 agent 做 OCR
+  if (imageFiles.length > 0) {
+    const uploadHints = [];
+    for (const imgFile of imageFiles) {
+      try {
+        const fd = new FormData();
+        fd.append('file', imgFile);
+        const resp = await fetch(`${API_BASE}/upload-image`, { method: 'POST', body: fd });
+        if (resp.ok) {
+          const { path, original_name } = await resp.json();
+          uploadHints.push(`[IMAGE_FILE name="${original_name}" path="${path}"]`);
+          console.log(`[UploadImage] 已儲存 ${original_name} → ${path}`);
+        }
+      } catch (e) {
+        console.warn(`[UploadImage] 上傳失敗 ${imgFile.name}:`, e);
+      }
+    }
+    if (uploadHints.length > 0) {
+      finalMessage = finalMessage + '\n\n' + uploadHints.join('\n');
+    }
   }
 
   return { finalMessage, imageFiles };
@@ -157,6 +227,7 @@ export async function* sendMessage(message, sessionId, agentId = 'research-agent
   formData.append('message', finalMessage);
   formData.append('session_id', sessionId);
   formData.append('stream', 'True');
+  formData.append('stream_events', 'True');
   formData.append('monitor', 'True');
   const userId = getUserId();
   if (userId) formData.append('user_id', userId);
@@ -186,6 +257,7 @@ export async function* sendTeamMessage(message, sessionId, signal, files = []) {
   formData.append('message', finalMessage);
   formData.append('session_id', sessionId);
   formData.append('stream', 'True');
+  formData.append('stream_events', 'True');
   formData.append('monitor', 'True');
   const userId = getUserId();
   if (userId) formData.append('user_id', userId);

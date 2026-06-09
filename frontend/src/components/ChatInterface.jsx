@@ -19,6 +19,72 @@ const ACCEPTED_FILE_TYPES = [
   'application/json',
 ].join(',');
 
+function mergeStreamText(existing, incoming) {
+  if (!incoming) return existing;
+  if (!existing) return incoming;
+  if (existing.endsWith(incoming)) return existing;
+  if (incoming.startsWith(existing)) return incoming;
+  return existing + incoming;
+}
+
+function splitReasoningFromContent(rawContent) {
+  if (!rawContent) {
+    return { content: '', thinkingContent: '' };
+  }
+
+  const content = String(rawContent);
+
+  const thinkingTagMatch = content.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+  if (thinkingTagMatch) {
+    return {
+      content: content.replace(thinkingTagMatch[0], '').trim(),
+      thinkingContent: thinkingTagMatch[1].trim(),
+    };
+  }
+
+  const markdownReasoningHeading = content.match(/(^|\n)##\s*(一步一步思考過程|思考過程|推理過程|分析過程)\s*\n/i);
+  if (markdownReasoningHeading) {
+    const reasoningStart = markdownReasoningHeading.index + markdownReasoningHeading[0].length;
+    const answerHeading = /\n##\s*(答案|最終答案|結論)\s*\n/i;
+    const remaining = content.slice(reasoningStart);
+    const answerMatch = remaining.match(answerHeading);
+
+    if (answerMatch) {
+      const answerStart = reasoningStart + answerMatch.index + 1;
+      return {
+        content: content.slice(answerStart).trim(),
+        thinkingContent: content.slice(reasoningStart, reasoningStart + answerMatch.index).trim(),
+      };
+    }
+  }
+
+  const inlineReasoningMatch = content.match(/(?:\n|^)\*\*Reasoning:\*\*|(?:\n|^)Reasoning:/i);
+  if (inlineReasoningMatch && typeof inlineReasoningMatch.index === 'number') {
+    const markerStart = inlineReasoningMatch.index;
+    const markerEnd = markerStart + inlineReasoningMatch[0].length;
+    const mainContent = content.slice(0, markerStart).trim();
+    const reasoningContent = content.slice(markerEnd).trim();
+
+    if (reasoningContent) {
+      return {
+        content: mainContent,
+        thinkingContent: reasoningContent,
+      };
+    }
+  }
+
+  return { content, thinkingContent: '' };
+}
+
+function createAssistantPlaceholder() {
+  return {
+    role: 'assistant',
+    content: '',
+    thinkingContent: '',
+    isStreaming: true,
+  };
+}
+
 const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMessageSent, isTeamMode, onTeamModeChange, userId }, ref) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -28,9 +94,13 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
   const [currentAgent, setCurrentAgent] = useState(null);
   const [agents, setAgents] = useState([]);  // 可用 Agent 列表
   const [selectedAgent, setSelectedAgent] = useState('');  // 選中的 Agent ID
+  const [reasoningContent, setReasoningContent] = useState('');  // Reasoning model 思考內容
+  const [isThinking, setIsThinking] = useState(false);  // 是否正在思考中
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);  // 思考區塊是否展開
   const [uploadFiles, setUploadFiles] = useState([]);  // 已選擇的上傳檔案
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const shouldAutoScrollRef = useRef(true);
   const scrollTimeoutRef = useRef(null);
   const abortControllerRef = useRef(null);
   const inactivityTimerRef = useRef(null);
@@ -51,14 +121,18 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
       clearTimeout(scrollTimeoutRef.current);
     }
     scrollTimeoutRef.current = setTimeout(() => {
-      if (force || isNearBottom()) {
+      if (force || shouldAutoScrollRef.current) {
         messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
       }
     }, 50); // 50ms 防抖
   };
 
+  const handleMessagesScroll = () => {
+    shouldAutoScrollRef.current = isNearBottom();
+  };
+
   useEffect(() => {
-    scrollToBottom();
+    scrollToBottom(shouldAutoScrollRef.current);
   }, [messages, activeTools]);
 
   // 通知父元件 session 變更
@@ -162,6 +236,10 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
     setMessages([]);
     setActiveTools([]);
     setCurrentAgent(null);
+    setReasoningContent('');
+    setIsThinking(false);
+    setThinkingExpanded(false);
+    shouldAutoScrollRef.current = true;
   };
 
   const handleSubmit = async (e) => {
@@ -182,6 +260,11 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
     setIsLoading(true);
     setActiveTools([]);
     setCurrentAgent(null);
+    setReasoningContent('');
+    setIsThinking(false);
+    setThinkingExpanded(false);
+    shouldAutoScrollRef.current = true;
+    setMessages(prev => [...prev, createAssistantPlaceholder()]);
 
     // 建立新的 AbortController，中止上一次未完成的請求
     abortControllerRef.current?.abort();
@@ -219,6 +302,81 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
     resetInactivityTimer();
 
     let assistantContent = '';
+    let localReasoningContent = '';  // 本次回應的思考內容（存入 message 用）
+    let activeAgentName = '';
+    let lastPaintAt = 0;
+
+    const yieldToBrowser = async (force = false) => {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (!force && now - lastPaintAt < 16) return;
+      lastPaintAt = now;
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    };
+
+    const upsertAssistantMessage = (content, thinkingContent = localReasoningContent) => {
+      const derived = splitReasoningFromContent(content);
+      const nextThinkingContent = thinkingContent || derived.thinkingContent;
+      const nextContent = derived.thinkingContent ? derived.content : content;
+
+      setMessages(prev => {
+        const newMessages = [...prev];
+        const lastMsg = newMessages[newMessages.length - 1];
+
+        if (lastMsg && lastMsg.role === 'assistant') {
+          lastMsg.content = nextContent;
+          if (nextThinkingContent) {
+            lastMsg.thinkingContent = nextThinkingContent;
+          }
+          lastMsg.isStreaming = true;
+        } else {
+          newMessages.push({
+            role: 'assistant',
+            content: nextContent,
+            thinkingContent: nextThinkingContent || undefined,
+            isStreaming: true,
+          });
+        }
+
+        return [...newMessages];
+      });
+    };
+
+    const appendReasoning = (reasoningChunk) => {
+      if (!reasoningChunk) return;
+      localReasoningContent = mergeStreamText(localReasoningContent, reasoningChunk);
+      setReasoningContent(localReasoningContent);
+      setIsThinking(true);
+      upsertAssistantMessage(assistantContent, localReasoningContent);
+    };
+
+    const appendAssistantContent = (contentChunk) => {
+      if (!contentChunk) return;
+      assistantContent = mergeStreamText(assistantContent, contentChunk);
+      const derived = splitReasoningFromContent(assistantContent);
+      if (!localReasoningContent && derived.thinkingContent) {
+        localReasoningContent = derived.thinkingContent;
+        setReasoningContent(derived.thinkingContent);
+      }
+      setIsThinking(Boolean(derived.thinkingContent) && !derived.content.trim());
+      upsertAssistantMessage(assistantContent);
+    };
+
+    const extractToolInfo = (event) => {
+      const tool = event.tool || event.data?.tool || event.tool_call || event.tool_calls?.[0] || null;
+      const toolId = tool?.tool_call_id || event.tool_call_id || event.data?.tool_call_id || `${event.normalizedEvent || 'tool'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const toolName = tool?.tool_name || tool?.name || tool?.function?.name || event.tool_name || event.data?.tool_name || 'Unknown Tool';
+      const toolArgs = tool?.tool_args || tool?.args || tool?.arguments || tool?.function?.arguments || event.tool_args || event.data?.tool_args || '';
+      const toolResult = tool?.result || event.result || event.content || event.data?.result || event.data?.content || '';
+      const toolError = tool?.tool_call_error ? (toolResult || 'Tool call failed') : (event.error || event.message || event.data?.error || '');
+
+      return {
+        toolId,
+        toolName,
+        toolArgs,
+        toolResult,
+        toolError,
+      };
+    };
 
     try {
       // 根據模式選擇 API（傳送檔案）
@@ -239,105 +397,151 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
 
         console.log('Received event:', event); // Debug log
 
-        // 處理不同類型的事件
-        // Agent 模式: RunContent
-        // Team 模式: TeamRunContent
-        if (event.event === 'RunContent' || event.type === 'RunContent' ||
-          event.event === 'TeamRunContent' || event.type === 'TeamRunContent') {
-          const content = event.content || event.data?.content || '';
-          assistantContent += content;
-          setMessages(prev => {
-            const newMessages = [...prev];
-            const lastMsg = newMessages[newMessages.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-              lastMsg.content = assistantContent;
-            } else {
-              newMessages.push({ role: 'assistant', content: assistantContent });
-            }
-            return [...newMessages];
-          });
+        const eventType = event.normalizedEvent || '';
+        const eventContent = event.content || event.data?.content || '';
+        const eventReasoning = event.reasoning_content || event.data?.reasoning_content || '';
+        const eventAgentName = event.agent_name || event.member_name || event.team_name || '';
 
-          // 顯示當前 Agent 名稱
-          const agentName = event.agent_name || event.member_name || event.team_name;
-          if (agentName) {
-            setCurrentAgent(agentName);
+        if (eventAgentName) {
+          activeAgentName = eventAgentName;
+          setCurrentAgent(eventAgentName);
+        }
+
+        if (
+          eventType === 'run_content' ||
+          eventType === 'team_run_content' ||
+          eventType === 'member_run_content' ||
+          eventType === 'run_intermediate_content' ||
+          eventType === 'team_run_intermediate_content'
+        ) {
+          if (eventReasoning && !eventContent) {
+            appendReasoning(eventReasoning);
+          } else {
+            if (eventReasoning) {
+              appendReasoning(eventReasoning);
+            }
+            if (eventContent) {
+              appendAssistantContent(eventContent);
+            }
+            await yieldToBrowser();
           }
         }
 
-        // 處理 Team Member 回應事件
-        if (event.event === 'MemberRunContent' || event.type === 'MemberRunContent') {
-          const content = event.content || '';
-          assistantContent += content;
+        if (eventType === 'reasoning_started' || eventType === 'team_reasoning_started') {
+          setIsThinking(true);
+        }
+
+        if (eventType === 'model_request_started' || eventType === 'team_model_request_started') {
+          setIsThinking(true);
+        }
+
+        if (eventType === 'reasoning_content_delta' || eventType === 'team_reasoning_content_delta') {
+          appendReasoning(eventReasoning || eventContent);
+          await yieldToBrowser();
+        }
+
+        if (eventType === 'reasoning_completed' || eventType === 'team_reasoning_completed') {
+          if (eventReasoning) {
+            appendReasoning(eventReasoning);
+          }
+          setIsThinking(false);
+        }
+
+        if (eventType === 'model_request_completed' || eventType === 'team_model_request_completed') {
+          setIsThinking(false);
+        }
+
+        // RunCompleted / TeamRunCompleted：作為非串流 reasoning model 的 fallback
+        // 若整個 stream 過程中都沒有累積任何 content（如 o1/o3 不逐 token 輸出），
+        // 從 RunCompleted 取完整回答
+        if (eventType === 'run_completed' || eventType === 'team_run_completed') {
+          setIsThinking(false);
+          if (eventReasoning) {
+            appendReasoning(eventReasoning);
+          }
+          const finalContent = eventContent;
+          if (finalContent && !assistantContent) {
+            appendAssistantContent(finalContent);
+          } else if (assistantContent && localReasoningContent) {
+            upsertAssistantMessage(assistantContent);
+          }
+        }
+
+        // 錯誤事件：RunError / AgentRunError 等
+        if (
+          eventType === 'run_error' ||
+          eventType === 'team_run_error' ||
+          eventType === 'tool_call_error' ||
+          eventType === 'team_tool_call_error' ||
+          (eventType.includes('error') && (event.message || event.error || eventContent))
+        ) {
+          setIsThinking(false);
+          const errMsg = event.message || event.error || eventContent || '未知錯誤';
+
+          if (eventType === 'tool_call_error' || eventType === 'team_tool_call_error') {
+            const { toolId, toolError } = extractToolInfo(event);
+            setActiveTools(prev => prev.map(tool => (
+              tool.id === toolId
+                ? { ...tool, status: 'error', error: toolError || errMsg }
+                : tool
+            )));
+          }
+
           setMessages(prev => {
             const newMessages = [...prev];
-            const lastMsg = newMessages[newMessages.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-              lastMsg.content = assistantContent;
-            } else {
-              newMessages.push({ role: 'assistant', content: assistantContent });
+            const last = newMessages[newMessages.length - 1];
+            if (last?.role === 'assistant' && last.content) {
+              newMessages[newMessages.length - 1] = {
+                ...last,
+                content: last.content + `\n\n> ❌ **執行錯誤**：${errMsg}`,
+                thinkingContent: localReasoningContent || last.thinkingContent,
+              };
+              return newMessages;
             }
-            return [...newMessages];
+            return [...newMessages, { role: 'assistant', content: `❌ **執行錯誤**：${errMsg}` }];
           });
-
-          // 顯示當前執行的 member
-          if (event.member_name) {
-            setCurrentAgent(event.member_name);
-          }
         }
 
         // 處理工具呼叫事件
-        // Check for both ToolCallStart (older?) and ToolCallStarted (newer/observed)
-        if (event.event === 'ToolCallStart' || event.event === 'ToolCallStarted' ||
-          event.type === 'ToolCallStart' || event.type === 'ToolCallStarted') {
+        if (eventType === 'tool_call_started' || eventType === 'team_tool_call_started') {
+          const { toolId, toolName, toolArgs } = extractToolInfo(event);
+          const toolAgentName = eventAgentName || activeAgentName || 'Assistant';
 
-          // Try correctly mapped Agno structure based on user feedback (event.tool.tool_name)
-          const toolName = event.tool?.tool_name ||
-            event.tool?.name ||
-            event.tool_call?.function?.name ||
-            event.tool_call?.name ||
-            event.tool_calls?.[0]?.function?.name ||
-            event.tool_calls?.[0]?.name ||
-            event.tool_name ||
-            event.data?.tool_name ||
-            'Unknown Tool';
-
-          const toolArgs = event.tool?.tool_args ||
-            event.tool?.args ||
-            event.tool?.arguments ||
-            event.tool_call?.function?.arguments ||
-            event.tool_call?.arguments ||
-            event.tool_calls?.[0]?.function?.arguments ||
-            event.tool_calls?.[0]?.arguments ||
-            event.tool_args ||
-            event.data?.tool_args ||
-            '';
-
-          // 從事件中取得 agent 名稱
-          const toolAgentName = event.agent_name || currentAgent || '';
-
-          setActiveTools(prev => [...prev, {
-            name: toolName,
-            args: typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs),
-            status: 'running',
-            agentName: toolAgentName
-          }]);
-        }
-
-        if (event.event === 'ToolCallEnd' || event.event === 'ToolCallCompleted' ||
-          event.type === 'ToolCallEnd' || event.type === 'ToolCallCompleted') {
           setActiveTools(prev => {
-            const newTools = [...prev];
-            const lastTool = newTools[newTools.length - 1];
-            if (lastTool) {
-              lastTool.status = 'completed';
+            const toolArgsText = typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs);
+            const existingIndex = prev.findIndex(tool => tool.id === toolId);
+
+            if (existingIndex >= 0) {
+              const updated = [...prev];
+              updated[existingIndex] = {
+                ...updated[existingIndex],
+                name: toolName,
+                args: toolArgsText,
+                status: 'running',
+                agentName: toolAgentName,
+              };
+              return updated;
             }
-            return newTools;
+
+            return [...prev, {
+              id: toolId,
+              name: toolName,
+              args: toolArgsText,
+              status: 'running',
+              agentName: toolAgentName,
+            }];
           });
+          await yieldToBrowser();
         }
 
-        // 處理 Agent 名稱（階段二用）
-        if (event.member_name || event.agent_name) {
-          setCurrentAgent(event.member_name || event.agent_name);
+        if (eventType === 'tool_call_completed' || eventType === 'team_tool_call_completed') {
+          const { toolId, toolResult } = extractToolInfo(event);
+          setActiveTools(prev => prev.map(tool => (
+            tool.id === toolId
+              ? { ...tool, status: 'completed', result: toolResult }
+              : tool
+          )));
+          await yieldToBrowser();
         }
       }
     } catch (error) {
@@ -352,6 +556,15 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
     } finally {
       clearTimeout(inactivityTimerRef.current);
       setIsLoading(false);
+      setIsThinking(false);
+      setMessages(prev => {
+        const newMessages = [...prev];
+        const lastMsg = newMessages[newMessages.length - 1];
+        if (lastMsg?.role === 'assistant') {
+          lastMsg.isStreaming = false;
+        }
+        return newMessages;
+      });
     }
   };
 
@@ -394,6 +607,30 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
         </div>
       </header>
 
+      {/* 思考中指示區塊（Reasoning Model 使用） */}
+      {isLoading && (isThinking || reasoningContent) && (
+        <div className="thinking-block">
+          <div
+            className="thinking-block-header"
+            onClick={() => setThinkingExpanded(prev => !prev)}
+          >
+            <span className="thinking-icon">{isThinking ? '🧠' : '💭'}</span>
+            <span className="thinking-title">
+              {isThinking ? '正在思考中…' : '思考過程'}
+            </span>
+            {isThinking && (
+              <span className="thinking-spinner"></span>
+            )}
+            <span className="thinking-toggle">{thinkingExpanded ? '▲' : '▼'}</span>
+          </div>
+          {thinkingExpanded && reasoningContent && (
+            <div className="thinking-content">
+              <pre>{reasoningContent}</pre>
+            </div>
+          )}
+        </div>
+      )}
+
       {currentAgent && (
         <div className="current-agent">
           <span className="agent-indicator">🎯</span>
@@ -401,7 +638,7 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
         </div>
       )}
 
-      <div className="messages-container" ref={messagesContainerRef}>
+      <div className="messages-container" ref={messagesContainerRef} onScroll={handleMessagesScroll}>
         {messages.length === 0 && (
           <div className="welcome-message">
             <h2>👋 Welcome{userId && userId !== 'unknown' ? `, ${userId}` : ''}!</h2>
@@ -447,7 +684,7 @@ const ChatInterface = forwardRef(function ChatInterface({ onSessionChange, onMes
                   }}
                 />
               )}
-              <Message role={msg.role} content={msg.content} />
+              <Message role={msg.role} content={msg.content} thinkingContent={msg.thinkingContent} isStreaming={msg.isStreaming} />
             </div>
           );
         })}

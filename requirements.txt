@@ -1,4 +1,5 @@
 agno[postgres]
+fastmcp
 httpx
 tavily-python
 python-dotenv
@@ -9,6 +10,8 @@ openai
 sqlalchemy
 ddgs
 plotly
+pandas
+kaleido
 litellm
 a2a-sdk
 opentelemetry-api

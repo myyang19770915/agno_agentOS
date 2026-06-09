@@ -1,7 +1,7 @@
 ﻿.tool-status {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: 12px;
+  background: rgba(0, 87, 184, 0.08);
+  border: 1px solid rgba(0, 87, 184, 0.3);
+  border-radius: 10px;
   padding: 1rem;
   margin: 0.5rem 0;
 }
@@ -11,17 +11,17 @@
   align-items: center;
   justify-content: space-between;
   font-weight: 600;
-  color: #a78bfa;
+  color: #4DA3FF;
   margin-bottom: 0.5rem;
   font-size: 0.875rem;
   cursor: pointer;
   padding: 0.5rem;
-  border-radius: 8px;
+  border-radius: 6px;
   transition: background 0.2s ease;
 }
 
 .tool-status-header:hover {
-  background: rgba(139, 92, 246, 0.15);
+  background: rgba(0, 87, 184, 0.15);
 }
 
 .header-left {
@@ -92,7 +92,7 @@
 }
 
 .agent-group.completed {
-  border-left-color: #00ff88;
+  border-left-color: #1A73E8;
 }
 
 .agent-group.error {
@@ -126,15 +126,15 @@
 
 .agent-name {
   font-weight: 600;
-  color: #00d9ff;
+  color: #4DA3FF;
   font-size: 0.85rem;
   flex: 1;
 }
 
 .agent-task-count {
   font-size: 0.7rem;
-  color: #888;
-  background: rgba(255, 255, 255, 0.1);
+  color: #6B87B0;
+  background: rgba(0, 87, 184, 0.12);
   padding: 2px 8px;
   border-radius: 10px;
 }
@@ -164,7 +164,7 @@
 }
 
 .tool-item.completed {
-  border-left-color: #00ff88;
+  border-left-color: #1A73E8;
 }
 
 .tool-item.error {

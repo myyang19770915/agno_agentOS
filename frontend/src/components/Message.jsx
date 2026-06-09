@@ -1,4 +1,4 @@
-﻿import { memo, useMemo, useRef, useEffect } from 'react';
+﻿import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import { API_BASE, IMAGES_BASE, CHARTS_BASE, DOWNLOADS_BASE } from '../config';
 import './Message.css';
 
@@ -16,7 +16,8 @@ const ChartSection = memo(function ChartSection({ html }) {
   );
 });
 
-const Message = memo(function Message({ role, content, isStreaming }) {
+const Message = memo(function Message({ role, content, isStreaming, thinkingContent }) {
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const lastImageHtmlRef = useRef('');
   const lastChartHtmlRef = useRef('');
   const lastDownloadHtmlRef = useRef('');
@@ -76,8 +77,22 @@ const Message = memo(function Message({ role, content, isStreaming }) {
       }
     };
 
+    const handleChartPopupClick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = e.currentTarget.getAttribute('data-chart-src') || e.currentTarget.getAttribute('href');
+      if (!url) return;
+      window.open(url, '_blank', 'noopener,noreferrer,width=1280,height=900');
+    };
+
     const downloadLinks = container.querySelectorAll('.download-btn');
     downloadLinks.forEach(link => link.addEventListener('click', handleDownloadClick));
+
+    const chartPopupButtons = container.querySelectorAll('.chart-open-btn');
+    chartPopupButtons.forEach(button => button.addEventListener('click', handleChartPopupClick));
+
+    const chartLinks = container.querySelectorAll('.chart-link');
+    chartLinks.forEach(link => link.addEventListener('click', handleChartPopupClick));
 
     // 也攔截 auto-link 中殘留的 /download/ URL（兜底），避免跳轉到空白頁
     const autoLinks = container.querySelectorAll('a.auto-link');
@@ -92,6 +107,8 @@ const Message = memo(function Message({ role, content, isStreaming }) {
 
     return () => {
       downloadLinks.forEach(link => link.removeEventListener('click', handleDownloadClick));
+      chartPopupButtons.forEach(button => button.removeEventListener('click', handleChartPopupClick));
+      chartLinks.forEach(link => link.removeEventListener('click', handleChartPopupClick));
       autoLinks.forEach(link => {
         if (link.href && link.href.includes('/download/')) {
           link.removeEventListener('click', handleDownloadClick);
@@ -99,7 +116,7 @@ const Message = memo(function Message({ role, content, isStreaming }) {
       });
       images.forEach(img => img.removeEventListener('error', handleImageError));
     };
-  }, [downloadHtml, imageHtml]);
+  }, [chartHtml, downloadHtml, imageHtml]);
 
   return (
     <div className={`message ${role}`}>
@@ -108,7 +125,32 @@ const Message = memo(function Message({ role, content, isStreaming }) {
       </div>
       <div className="message-content">
         <div className="message-role">{role === 'user' ? 'You' : 'Assistant'}</div>
+        {/* Reasoning model 思考過程（可折疊，點擊展開/收起） */}
+        {thinkingContent && role === 'assistant' && (
+          <div className="thinking-block msg-thinking-block">
+            <div
+              className="thinking-block-header"
+              onClick={() => setThinkingExpanded(prev => !prev)}
+            >
+              <span className="thinking-icon">💭</span>
+              <span className="thinking-title">思考過程</span>
+              <span className="thinking-toggle">{thinkingExpanded ? '▲' : '▼'}</span>
+            </div>
+            {thinkingExpanded && (
+              <div className="thinking-content">
+                <pre>{thinkingContent}</pre>
+              </div>
+            )}
+          </div>
+        )}
         <div className="message-text" ref={messageTextRef}>
+          {isStreaming && !content && !thinkingContent && (
+            <div className="message-streaming-placeholder">
+              <span className="dot"></span>
+              <span className="dot"></span>
+              <span className="dot"></span>
+            </div>
+          )}
           {/* 文字內容 - 可以隨 stream 更新 */}
           <div dangerouslySetInnerHTML={{ __html: textHtml }} />
           {/* Plotly 圖表 iframe 區域 — 獨立 memo 化元件，防止打字時閃爍 */}
@@ -147,6 +189,85 @@ function extractImagesFromContent(content) {
   // 先統一路徑分隔符號（Windows 反斜線轉正斜線）
   html = html.replace(/\\/g, '/');
 
+  const buildChartTitleFromPath = (chartPath, fallback = 'Interactive Chart') => {
+    try {
+      const normalizedPath = chartPath.split('?')[0].split('#')[0];
+      const filename = decodeURIComponent(normalizedPath.split('/').pop() || '');
+      const baseName = filename.replace(/\.html$/i, '').replace(/[_-]+/g, ' ').trim();
+      return baseName || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const normalizeChartSrc = (chartPath) => {
+    let src = chartPath.trim();
+
+    if (src.startsWith('charts/')) {
+      src = `/${src}`;
+    }
+
+    if (src.startsWith('/charts/')) {
+      src = `${API_BASE}${src}`;
+    } else if (!src.startsWith(CHARTS_BASE)) {
+      src = src.replace(/https?:\/\/localhost:\d+/, API_BASE);
+    }
+
+    return encodeURI(src);
+  };
+
+  const isMarkdownTableSeparator = (line) => /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+(?:\s*:?-{3,}:?\s*)?\|?\s*$/.test(line);
+
+  const splitMarkdownTableRow = (line) => (
+    line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim())
+  );
+
+  const getMarkdownTableAlignments = (separatorLine) => (
+    splitMarkdownTableRow(separatorLine).map((cell) => {
+      const trimmed = cell.trim();
+      if (trimmed.startsWith(':') && trimmed.endsWith(':')) return 'center';
+      if (trimmed.endsWith(':')) return 'right';
+      return 'left';
+    })
+  );
+
+  const convertMarkdownTables = (markdown) => {
+    const lines = markdown.split('\n');
+    const output = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const currentLine = lines[index];
+      const nextLine = lines[index + 1];
+
+      if (nextLine && currentLine.includes('|') && isMarkdownTableSeparator(nextLine)) {
+        const headerCells = splitMarkdownTableRow(currentLine);
+        const alignments = getMarkdownTableAlignments(nextLine);
+        const rows = [];
+        let rowIndex = index + 2;
+
+        while (rowIndex < lines.length) {
+          const line = lines[rowIndex];
+          if (!line.trim() || !line.includes('|') || isMarkdownTableSeparator(line)) {
+            break;
+          }
+          rows.push(splitMarkdownTableRow(line));
+          rowIndex += 1;
+        }
+
+        const columnCount = Math.max(headerCells.length, alignments.length, ...rows.map(row => row.length));
+        const padCells = (cells) => Array.from({ length: columnCount }, (_, cellIndex) => cells[cellIndex] ?? '');
+
+        output.push(`<div class="table-wrapper"><table class="md-table"><thead><tr>${padCells(headerCells).map((cell, cellIndex) => `<th style="text-align:${alignments[cellIndex] || 'left'}">${cell || '<span class="table-empty">-</span>'}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${padCells(row).map((cell, cellIndex) => `<td style="text-align:${alignments[cellIndex] || 'left'}">${cell || '<span class="table-empty">-</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+        index = rowIndex - 1;
+        continue;
+      }
+
+      output.push(currentLine);
+    }
+
+    return output.join('\n');
+  };
+
   // Helper function to add image
   const addImage = (imgSrc, altText = 'Generated Image') => {
     // 統一規範化為 API_BASE/images/<filename>
@@ -175,27 +296,26 @@ function extractImagesFromContent(content) {
 
   // Helper function to add Plotly chart iframe
   const addChart = (chartPath, title = 'Interactive Chart') => {
-    // 確保使用 API_BASE 路徑
-    let src = chartPath;
-    if (src.startsWith('/charts/')) {
-      src = `${API_BASE}${src}`;
-    } else {
-      // 統一成 API_BASE（防止其他 port 寫法）
-      src = src.replace(/https?:\/\/localhost:\d+/, API_BASE);
-    }
+    const src = normalizeChartSrc(chartPath);
     if (!foundCharts.has(src)) {
       foundCharts.add(src);
       const safeTitle = title.replace(/"/g, '&quot;');
       chartHtml += `<div class="chart-container">
-        <div class="chart-title">📊 ${safeTitle}</div>
+        <div class="chart-toolbar">
+          <div class="chart-title">📊 ${safeTitle}</div>
+          <button type="button" class="chart-open-btn" data-chart-src="${src}">獨立視窗</button>
+        </div>
         <iframe
           src="${src}"
           class="chart-iframe"
           frameborder="0"
           scrolling="no"
           title="${safeTitle}"
+          loading="lazy"
         ></iframe>
-        <a href="${src}" target="_blank" rel="noopener" class="chart-link">🔗 獨立開啟圖表</a>
+        <div class="chart-actions">
+          <a href="${src}" target="_blank" rel="noopener" class="chart-link">🔗 新視窗開啟圖表</a>
+        </div>
       </div>`;
     }
   };
@@ -238,18 +358,16 @@ function extractImagesFromContent(content) {
   // --- 0. 先偵測圖表 URL，優先於一般 URL 處理 ---
 
   // 0a. Markdown 連結格式: [title](http://localhost:7777/charts/xxx.html)
-  const chartMdLinkRegex = /\[([^\]]*)\]\(((?:https?:\/\/localhost:\d+)?\/charts\/[\w\-_.%]+\.html)\)/gi;
+  const chartMdLinkRegex = /\[([^\]]*)\]\(((?:https?:\/\/localhost:\d+)?\/?charts\/[^)\s]+?\.html)\)/gi;
   html = html.replace(chartMdLinkRegex, (match, text, url) => {
     addChart(url, text || 'Interactive Chart');
     return '';
   });
 
-  // 0b. 純 URL 格式（含或不含 host）: http://localhost:7777/charts/xxx.html 或 /charts/xxx.html
-  const chartUrlRegex = /(?:https?:\/\/localhost:\d+)?(\/charts\/[\w\-_.%]+\.html)/gi;
+  // 0b. 純 URL 格式（含中文檔名與相對路徑）
+  const chartUrlRegex = /(?:https?:\/\/localhost:\d+)?((?:\/|)charts\/[^\s<>\[\]"')]+?\.html)/gi;
   html = html.replace(chartUrlRegex, (match, path) => {
-    const filename = path.split('/').pop().replace('.html', '');
-    const title = filename.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    addChart(path, title);
+    addChart(path, buildChartTitleFromPath(path));
     return '';
   });
 
@@ -325,6 +443,8 @@ function extractImagesFromContent(content) {
     addImage(`/images/${filename}`);
     return '';
   });
+
+  html = convertMarkdownTables(html);
 
   // 完整的 Markdown 轉換
   const textHtml = html

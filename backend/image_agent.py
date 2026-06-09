@@ -34,6 +34,9 @@ model = LiteLLMOpenAI(
     id=os.getenv("MODEL_ID", "deepseek-chat"),
     api_key=os.getenv("LITELLM_API_KEY"),
     base_url=os.getenv("LITELLM_BASE_URL", "http://localhost:4001/v1"),
+    extra_body={
+        'chat_template_kwargs': {'enable_thinking': False}
+        }
 )
 
 # 資料庫用於 Session 記憶 (PostgreSQL)

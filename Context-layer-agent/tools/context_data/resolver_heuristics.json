@@ -1,0 +1,23 @@
+{
+  "term_triggers": [
+    {
+      "term": "Customer",
+      "keywords": ["customer", "客戶", "active customer"]
+    },
+    {
+      "term": "Case",
+      "keywords": ["case", "案件"]
+    },
+    {
+      "term": "Shipment",
+      "keywords": ["shipment", "出貨"]
+    }
+  ],
+  "finance_keywords": ["營收", "付款", "revenue", "payment", "收款"],
+  "cross_domain_rules": [
+    {
+      "terms": ["Customer", "Case"],
+      "note": "Customer + Case 查詢需同時套用 customer scope 與 case scope，避免將內部案件混入外部客戶案件。"
+    }
+  ]
+}

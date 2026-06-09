@@ -1,0 +1,20 @@
+{
+  "term_name": "Case",
+  "term_scope": "Customer Service Case",
+  "short_definition": "與客戶服務、問題處理、追蹤與回覆相關的正式案件紀錄",
+  "formal_definition": "Case 指可被系統追蹤的正式客戶服務、客訴、支援、問題處理或追蹤案件。第一版先聚焦 external customer service case，不含內部任務單與專案需求單。",
+  "status_dimensions": {
+    "primary_status": ["Open", "In Progress", "Resolved", "Closed"],
+    "priority": ["Low", "Medium", "High"]
+  },
+  "source_systems": ["CaseSystem", "CRM"],
+  "source_authority_rule": {
+    "Case Definition": "Case system / CRM service module",
+    "Open Case": "status in [Open, In Progress]",
+    "Customer Link": "CRM account mapping"
+  },
+  "cross_domain_notes": [
+    "Case 需綁定 customer scope 才能做 account-level 分析",
+    "Case 第一版不含內部需求案件"
+  ]
+}

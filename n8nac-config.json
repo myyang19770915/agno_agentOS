@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "activeInstanceId": "legacy-default-project",
+  "instances": [
+    {
+      "id": "legacy-default-project",
+      "name": "Default instance",
+      "syncFolder": "workflows"
+    }
+  ],
+  "syncFolder": "workflows"
+}

@@ -1,0 +1,14 @@
+{
+  "metric_name": "active_customer_status",
+  "result": {
+    "active_customer_count": 128,
+    "trend": "上升",
+    "change_pct": 7.3,
+    "top_segments": ["A級客戶", "北區製造", "代理通路"]
+  },
+  "source_systems": ["CRM", "ERP"],
+  "notes": [
+    "示範用 mock data",
+    "active customer 口徑依 Customer term card：最近 180 天內至少一項有效互動"
+  ]
+}

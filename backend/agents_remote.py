@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from agno.tools.python import PythonTools
 from agno.tools.shell import ShellTools
 from agno.tools.sql import SQLTools
+from agno.tools.mcp import MultiMCPTools, StreamableHTTPClientParams
 
 
 # ===== 修補 PythonTools：捕獲 stdout/stderr 並回傳完整 traceback =====
@@ -73,10 +74,25 @@ load_dotenv()
 #     base_url="http://localhost:4001/v1",
 # )
 
+# chat_template_kwargs 只有 Qwen/DeepSeek/TXC 系列支援；其他模型（Azure、GPT）會回傳 400
+# ENABLE_THINKING=true  → 開啟 reasoning model 思考輸出（前端顯示 reasoning_content）
+# ENABLE_THINKING=false → 關閉思考輸出（預設，速度較快）
+_model_id = os.getenv("MODEL_ID", "TXC-LLM")
+_THINKING_MODELS = ("deepseek", "qwen", "txc")  # 支援 chat_template_kwargs 的模型關鍵字
+_supports_thinking = any(k in _model_id.lower() for k in _THINKING_MODELS)
+_enable_thinking = os.getenv("ENABLE_THINKING", "false").lower() == "true"
+
+_extra_body: dict = {}
+if _supports_thinking:
+    _extra_body = {"chat_template_kwargs": {"enable_thinking": _enable_thinking}}
+    if _enable_thinking:
+        _extra_body["include_reasoning"] = True
+
 model = LiteLLMOpenAI(
-    id=os.getenv("MODEL_ID", "deepseek-chat"),
+    id=_model_id,
     api_key=os.getenv("LITELLM_API_KEY"),
     base_url=os.getenv("LITELLM_BASE_URL", "http://localhost:4001/v1"),
+    extra_body=_extra_body,
 )
 
 # 資料庫用於 Session 記憶 (PostgreSQL)
@@ -111,6 +127,26 @@ os.makedirs(Path(__file__).parent / "outputs" / "images", exist_ok=True)
 skills_dir = Path("/root/agno_agentOS/skills")
 agent_skills = Skills(loaders=[LocalSkills(str(skills_dir))])
 
+# ===== MCP Tools 設定 =====
+# 透過 Streamable HTTP 連接外部 MCP server
+# include_tools: 只使用指定工具名稱（None = 全部）
+# exclude_tools: 排除指定工具名稱
+# 若要查詢可用工具名稱，請先啟動後呼叫 mcp_tools.build_tools() 並查看 mcp_tools.functions
+
+mcp_tools = MultiMCPTools(
+    server_params_list=[
+        StreamableHTTPClientParams(
+            url=os.getenv("MCP_SERVER_URL", "http://192.168.37.71:32290/mcp"),
+            headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}"},
+        )
+    ],
+    timeout_seconds=15,
+    refresh_connection=False,    # False = 不在每次請求重新連線（startup event 已管理生命週期）
+    allow_partial_failure=True,  # MCP server 不可用時不中斷整個 agent
+    include_tools=["ocr-ocr_image_ocr_post", "markitdown-convert_to_markdown"],  # 只使用特定工具（填入完整工具名稱）
+    # exclude_tools=["tool_name3"],                # 排除特定工具
+)
+
 # 主要研究 Agent
 research_agent = Agent(
     id="research-agent",
@@ -120,7 +156,9 @@ research_agent = Agent(
     tools=[tavily_tools,
            CapturedPythonTools(base_dir=Path(__file__).parent),
            ShellTools(),
-           SQLTools(db_url=db_url, schema="ai")],
+           SQLTools(db_url=db_url, schema="ai"),
+        #    mcp_tools
+           ],
     skills=agent_skills,  # 加入 Skills
     tool_call_limit=10,    # 限制最多5次工具呼叫，避免循環搜尋
 instructions="""使用繁體中文回答, You are a helpful research assistant with access to web search, Python code execution, and shell commands.
@@ -136,6 +174,17 @@ instructions="""使用繁體中文回答, You are a helpful research assistant w
     - Default schema: `ai`. When querying, use fully-qualified names: `ai.<table_name>`
     - Always run `list_tables()` first if you are unsure which tables exist.
     5. **Skills**: Access specialized built-in skills when needed.
+    6. **MCP Tools**: Access external MCP server tools (OCR, document conversion, data analysis, etc.).
+
+## OCR Workflow (IMPORTANT)
+    When the user uploads an image and you see `[IMAGE_FILE name="..." path="..."]` in the message:
+    1. Extract the `path` value from the hint (e.g. `/root/agno_agentOS/backend/uploads/abc123.jpg`).
+    2. Call the MCP tool `ocr-ocr_image_ocr_post` directly, passing the **file path** as the `file` parameter:
+       - `file`: the local path string (e.g. `/root/agno_agentOS/backend/uploads/abc123.jpg`)
+       - `user_prompt`: (optional) custom OCR prompt text
+    3. The MCP server will read the file from the path and send it to the OCR API automatically.
+    4. The API returns JSON with fields: `raw_text` (extracted text), `success` (bool), `error` (str or null).
+    5. Present `result["raw_text"]` to the user in a clean, readable format.
 
 ## Workflow Guidelines
     1. For information requests: use Tavily search first, cite all sources.
@@ -143,6 +192,12 @@ instructions="""使用繁體中文回答, You are a helpful research assistant w
     3. For visualizations: ALWAYS use Plotly (see rules below).
     4. Respond in the same language as the user's question.
     5. You have access to various skills - use get_skill_instructions() to load skill details when needed.
+
+## Shell Command Restrictions (MANDATORY)
+    - **NEVER run `pip install`, `uv pip install`, `conda install`, or any package manager command** via ShellTools.
+    - All required packages (plotly, pandas, numpy, requests, etc.) are **pre-installed** in the environment.
+    - If a Python import fails with ModuleNotFoundError, report the error to the user — do NOT attempt to install it.
+    - ShellTools is for file operations, directory listing, and system queries only.
 
 ## Plotly Visualization Rules (MANDATORY)
     Whenever the user asks for a chart, graph, plot, or any visualization:

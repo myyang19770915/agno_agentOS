@@ -1,0 +1,18 @@
+{
+  "user_id": "sales_manager_demo",
+  "department": "業務",
+  "role": "Sales Manager",
+  "access_context": {
+    "access_level": "manager",
+    "permitted_domains": ["Customer", "Case", "Shipment"],
+    "restricted_domains": ["Payroll", "Sensitive HR"],
+    "finance_access_flag": false,
+    "hr_access_flag": false
+  },
+  "preference_context": {
+    "preferred_language": "zh-TW",
+    "response_style": "summary_first",
+    "preferred_metric_lens": "sales-operational",
+    "default_customer_scope": "external-current"
+  }
+}

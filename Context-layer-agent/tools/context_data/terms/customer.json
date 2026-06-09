@@ -1,0 +1,14 @@
+{
+  "term_name": "Customer",
+  "term_scope": "External Customer only",
+  "lifecycle": {
+    "active_rule": "最近 180 天內，至少有一項有效商務或服務互動紀錄"
+  },
+  "source_systems": ["CRM", "ERP"],
+  "source_authority_rule": {
+    "Lead": "CRM",
+    "Registered": "CRM or ERP",
+    "Transacting": "ERP / 正式訂單",
+    "Active": "CRM + ERP + service records"
+  }
+}

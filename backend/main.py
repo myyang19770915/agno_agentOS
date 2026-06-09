@@ -17,6 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from typing import Optional
 import os
 import io
+import uuid
 import httpx
 from agno.db.postgres import PostgresDb
 
@@ -89,7 +90,7 @@ tracing_db = PostgresDb(
 
 # ----- 模式 3: Native RemoteAgent 模式 (推薦，需要 agno 2.3.26+) -----
 # 直接使用 RemoteAgent 作為 Team 成員，無需 Wrapper
-from agents_remote import research_agent, creative_team, image_agent
+from agents_remote import research_agent, creative_team, image_agent, mcp_tools
 
 
 # ============================================================================
@@ -104,6 +105,9 @@ os.makedirs(CHARTS_DIR, exist_ok=True)
 
 DOWNLOADS_DIR = os.path.join(os.path.dirname(__file__), "downloads")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 
 # ============================================================================
@@ -123,6 +127,21 @@ agent_os = AgentOS(
 app = agent_os.get_app()
 app.root_path = ROOT_PATH
 
+# ============================================================================
+# MCP Tools 連線生命週期管理
+# MultiMCPTools 需要在 async 環境中 connect() 才能初始化工具清單
+# 使用 FastAPI startup/shutdown event 管理連線
+# ============================================================================
+@app.on_event("startup")
+async def startup_mcp():
+    """應用啟動時建立 MCP server 連線，讓 research_agent 可使用 MCP tools。"""
+    await mcp_tools.connect()
+
+@app.on_event("shutdown")
+async def shutdown_mcp():
+    """應用關閉時清理 MCP server 連線。"""
+    await mcp_tools.close()
+
 # 啟用 GZip 壓縮中間件 — 對所有 >= 1KB 的回應進行壓縮
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
@@ -131,6 +150,9 @@ app.mount("/images", StaticFiles(directory=output_dir), name="images")
 
 # 掛載 charts/ 静態目錄，讓 Plotly HTML 圖表可透過 /charts/ 路徑存取
 app.mount("/charts", StaticFiles(directory=CHARTS_DIR, html=True), name="charts")
+
+# 掛載 uploads/ 靜態目錄，讓上傳的圖片可透過 /uploads/ 路徑存取（供 OCR agent 讀取）
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 # 提供可下載的檔案（帶 Content-Disposition: attachment，瀏覽器直接觸發下載）
 # 注意：使用 api_route 同時支援 GET 和 HEAD，因為 AgentOS 不會自動為 GET 路由啟用 HEAD
@@ -158,6 +180,34 @@ async def download_file_plural(filename: str):
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ============================================================================
+# 圖片上傳 API：儲存圖片到磁碟並回傳本地路徑與 URL
+# Agent 可用 PythonTools 讀取此路徑的二進位資料傳給 OCR MCP tool
+# ============================================================================
+@app.post("/upload-image")
+async def upload_image_endpoint(file: UploadFile = File(...)):
+    """
+    儲存上傳的圖片到 uploads/ 目錄，回傳:
+    - url: 可透過 HTTP 存取的 URL（供前端顯示）
+    - path: 伺服器本地絕對路徑（供 agent 用 PythonTools 讀取 binary 做 OCR）
+    - filename: 儲存後的檔名
+    """
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".jpg"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(UPLOADS_DIR, filename)
+    with open(file_path, "wb") as f:
+        f.write(data)
+    return {
+        "url": f"http://localhost:{BACKEND_PORT}/uploads/{filename}",
+        "path": file_path,
+        "filename": filename,
+        "original_name": file.filename,
+    }
 
 
 # ============================================================================

@@ -1,0 +1,15 @@
+agno[postgres]
+fastapi
+uvicorn
+openai
+pydantic>=2.0
+python-dotenv
+httpx
+qdrant-client[fastembed]
+psycopg[binary]
+asyncpg
+sqlalchemy
+litellm
+requests
+pytest
+pytest-asyncio

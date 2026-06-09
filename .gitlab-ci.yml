@@ -1,0 +1,33 @@
+# 定義 Pipeline 的階段
+stages:
+  - security_scan
+
+
+
+# 3. 實體 SonarQube 掃描階段
+sonarqube_scan_job:
+  stage: security_scan
+  image:
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: "0"
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'       # push 時觸發
+    - if: '$CI_PIPELINE_SOURCE == "web"'        # 手動從網頁觸發也保留
+  script:
+    - |
+      sonar-scanner \
+        -Dsonar.host.url="${SONAR_HOST_URL}" \
+        -Dsonar.token="${SONAR_TOKEN}" \
+        -Dsonar.projectKey="${CI_PROJECT_PATH_SLUG}" \
+        -Dsonar.projectName="${CI_PROJECT_NAME}" \
+        -Dsonar.sources=. \
+        -Dsonar.exclusions="**/tests/**,**/site-packages/**" \
+        -Dsonar.python.version=3 \
+  allow_failure: true

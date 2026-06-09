@@ -39,32 +39,32 @@
 }
 
 .message.user .message-avatar {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: #0057B8;
 }
 
 .message.assistant .message-avatar {
-  background: linear-gradient(135deg, #00d9ff, #00ff88);
+  background: linear-gradient(135deg, #0057B8, #1A73E8);
 }
 
 .message-content {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
+  background: #132D55;
+  border-radius: 10px;
   padding: 0.875rem 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 87, 184, 0.4);
 }
 
 .message.user .message-content {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
-  border-color: rgba(102, 126, 234, 0.3);
+  background: #0D3375;
+  border-color: rgba(0, 87, 184, 0.65);
 }
 
 .message-role {
   font-size: 0.75rem;
-  font-weight: 600;
-  color: #888;
+  font-weight: 700;
+  color: #6BAED6;
   margin-bottom: 0.25rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
 }
 
 .message-text {
@@ -96,35 +96,55 @@
 }
 
 .message-text a {
-  color: #00d9ff;
+  color: #4DA3FF;
   text-decoration: none;
   transition: all 0.2s ease;
 }
 
 .message-text a:hover {
   text-decoration: underline;
-  color: #4de8ff;
+  color: #7EC8FF;
 }
 
 /* Markdown Links */
 .message-text .md-link {
-  color: #00d9ff;
+  color: #4DA3FF;
   font-weight: 500;
 }
 
 .message-text .auto-link {
-  color: #858eff;
+  color: #6B9FDB;
   word-break: break-all;
 }
 
 .message-text .auto-link:hover {
-  color: #a0a8ff;
+  color: #8BBFFF;
 }
 
 .message-text strong {
   color: #fff;
   font-weight: 600;
 }
+
+.message-streaming-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.5rem;
+  padding: 0.15rem 0;
+}
+
+.message-streaming-placeholder .dot {
+  width: 8px;
+  height: 8px;
+  background: #4DA3FF;
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out;
+}
+
+.message-streaming-placeholder .dot:nth-child(1) { animation-delay: 0s; }
+.message-streaming-placeholder .dot:nth-child(2) { animation-delay: 0.2s; }
+.message-streaming-placeholder .dot:nth-child(3) { animation-delay: 0.4s; }
 
 /* Markdown Headers */
 /* [UI 設定] 標題字體大小 */
@@ -176,7 +196,7 @@
 
 .message-text li.ul-item::before {
   content: '•';
-  color: #00d9ff;
+  color: #1A73E8;
   font-weight: bold;
   position: absolute;
   left: -0.75rem;
@@ -189,7 +209,7 @@
 }
 
 .message-text li.ol-item::marker {
-  color: #00d9ff;
+  color: #1A73E8;
   font-weight: 600;
 }
 
@@ -199,6 +219,72 @@
   height: 1px;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
   margin: 1rem 0;
+}
+
+.table-wrapper {
+  margin: 1rem 0;
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 87, 184, 0.28);
+  background: rgba(6, 15, 28, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.md-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+
+.md-table th,
+.md-table td {
+  padding: 0.8rem 1rem;
+  vertical-align: top;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.md-table th:last-child,
+.md-table td:last-child {
+  border-right: none;
+}
+
+.md-table thead {
+  background: linear-gradient(180deg, rgba(0, 87, 184, 0.22), rgba(0, 87, 184, 0.12));
+}
+
+.md-table th {
+  color: #d8ecff;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(0, 87, 184, 0.3);
+  white-space: nowrap;
+}
+
+.md-table tbody tr {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.md-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.md-table tbody tr:hover {
+  background: rgba(0, 87, 184, 0.12);
+}
+
+.md-table td {
+  color: #d7e4f2;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  word-break: break-word;
+}
+
+.table-empty {
+  color: #6B8EB5;
+  font-style: italic;
 }
 
 /* Generated Image Styles */
@@ -229,7 +315,7 @@
 .generated-image:hover {
   transform: scale(1.02);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-  border-color: rgba(102, 126, 234, 0.5);
+  border-color: rgba(0, 87, 184, 0.5);
 }
 
 .image-error {
@@ -263,7 +349,7 @@
 }
 
 .image-link:hover {
-  color: #00d9ff;
+  color: #4DA3FF;
 }
 
 /* Downloads Section - 下載檔案區域 */
@@ -279,8 +365,8 @@
   margin: 0.5rem 0;
   padding: 0.75rem 1rem;
   border-radius: 10px;
-  border: 1px solid rgba(0, 217, 255, 0.2);
-  background: rgba(0, 217, 255, 0.04);
+  border: 1px solid rgba(0, 87, 184, 0.25);
+  background: rgba(0, 87, 184, 0.06);
 }
 
 .download-info {
@@ -309,19 +395,19 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.4rem 1rem;
-  border-radius: 8px;
-  background: rgba(0, 217, 255, 0.15);
-  border: 1px solid rgba(0, 217, 255, 0.4);
-  color: #00d9ff;
+  border-radius: 6px;
+  background: #0057B8;
+  border: 1px solid #0057B8;
+  color: #ffffff;
   font-size: 0.82rem;
   font-weight: 600;
   text-decoration: none;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: background 0.2s ease;
 }
 
 .download-btn:hover {
-  background: rgba(0, 217, 255, 0.28);
-  border-color: rgba(0, 217, 255, 0.7);
+  background: #1A73E8;
+  border-color: #1A73E8;
   color: #fff;
 }
 
@@ -334,22 +420,52 @@
 
 .chart-container {
   margin: 0.75rem 0;
-  border-radius: 12px;
-  border: 1px solid rgba(0, 217, 255, 0.25);
-  background: rgba(10, 14, 26, 0.6);
+  border-radius: 10px;
+  border: 1px solid rgba(0, 87, 184, 0.3);
+  background: rgba(10, 22, 40, 0.7);
   overflow: hidden;
   /* 隔離 chart 容器，任何外部 reflow 不會導致 iframe 重繪 */
   contain: layout style paint;
 }
 
-.chart-title {
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.4rem 0.9rem;
+  background: rgba(0, 87, 184, 0.08);
+  border-bottom: 1px solid rgba(0, 87, 184, 0.2);
+}
+
+.chart-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #00d9ff;
-  background: rgba(0, 217, 255, 0.06);
-  border-bottom: 1px solid rgba(0, 217, 255, 0.15);
+  color: #4DA3FF;
   letter-spacing: 0.04em;
+}
+
+.chart-open-btn {
+  flex-shrink: 0;
+  padding: 0.42rem 0.8rem;
+  border: 1px solid rgba(0, 87, 184, 0.45);
+  border-radius: 999px;
+  background: rgba(0, 87, 184, 0.18);
+  color: #D8ECFF;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.chart-open-btn:hover {
+  background: rgba(26, 115, 232, 0.3);
+  border-color: rgba(26, 115, 232, 0.55);
+  transform: translateY(-1px);
 }
 
 .chart-iframe {
@@ -363,19 +479,25 @@
   will-change: contents;
 }
 
+.chart-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.4rem 0.75rem 0.55rem;
+}
+
 .chart-link {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   font-size: 0.78rem;
-  color: #666;
+  color: #4A6A99;
   text-decoration: none;
   padding: 0.3rem 0.75rem 0.4rem;
   transition: color 0.2s ease;
 }
 
 .chart-link:hover {
-  color: #00d9ff;
+  color: #4DA3FF;
 }
 
 /* Images Section - 獨立區域避免閃爍 */
