@@ -37,6 +37,7 @@ env/
 backend/tmp/
 backend/outputs/
 backend/outputs/images/
+backend/charts/
 *.db
 *.sqlite
 *.sqlite3
